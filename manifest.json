@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Nodea Tree for Claude",
+  "version": "0.1.0",
+  "description": "Surfaces the hidden branch tree inside Claude as a Nodea-style conversation map. Visualize, then open in Nodea.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://claude.ai/*"],
+  "action": {
+    "default_title": "Toggle Nodea Tree"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": [
+        "src/util.js",
+        "src/adapters/claude.js",
+        "src/adapters/claude-write.js",
+        "src/tree.js",
+        "src/panel.js",
+        "src/content.js"
+      ],
+      "css": ["src/theme.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
