@@ -74,14 +74,41 @@
 
 /* Header */
 .nx-header {
+  position: relative;
   height: 52px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 10px 0 14px;
+  padding: 0 10px 0 12px;
   border-bottom: 1px solid var(--nx-border);
   background: var(--nx-topbar-bg);
   gap: 6px;
+}
+
+/* App logo — top-left corner */
+.nx-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(109, 40, 217, .3);
+  display: block;
+}
+
+/* Nodea wordmark — centered in the header */
+.nx-wordmark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: var(--nx-accent);
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .nx-icon-btn {
@@ -147,20 +174,442 @@
   background: var(--nx-topbar-bg);
 }
 .nx-open-btn {
-  width: 100%;
-  height: 34px;
-  border: none;
-  border-radius: 8px;
-  background: var(--nx-accent);
-  color: #fff;
-  font-size: 13px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--nx-accent) 28%, transparent);
+  border-radius: 999px;
+  background: var(--nx-modal-bg);
+  color: var(--nx-accent);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 0.12s;
+  box-shadow: var(--nx-shadow-sm);
+  transition: background 0.12s, box-shadow 0.12s, border-color 0.12s;
 }
 .nx-open-btn:hover {
+  background: var(--nx-accent-bg);
+  border-color: color-mix(in srgb, var(--nx-accent) 45%, transparent);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--nx-accent) 22%, transparent);
+}
+.nx-open-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+  box-shadow: none;
+}
+/* "More with Nodea" — low-key text link in the footer (bottom bar) */
+.nx-more-link {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--nx-text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s;
+}
+.nx-more-link:hover {
+  color: var(--nx-accent);
+}
+/* Account (signed in) — initials avatar + popup, alongside the handoff button */
+.nx-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nx-acct {
+  position: relative;
+  flex-shrink: 0;
+}
+.nx-acct-avatar {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--nx-accent);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: filter 0.12s;
+}
+.nx-acct-avatar:hover {
   filter: brightness(1.08);
 }
+.nx-acct-menu {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 190px;
+  max-width: 240px;
+  padding: 10px;
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-modal-bg);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+}
+.nx-acct-menu-email {
+  font-size: 11.5px;
+  color: var(--nx-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-acct-logout {
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid var(--nx-border);
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--nx-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.nx-acct-logout:hover {
+  color: var(--nx-accent);
+  border-color: color-mix(in srgb, var(--nx-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--nx-accent) 8%, transparent);
+}
+
+/* Full-panel login (implements the "Nodea Login.html" design) */
+.nx-login {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 22px 16px 26px;
+  background: radial-gradient(circle at 50% 12%, #f6f3ff 0%, var(--nx-tree-bg) 46%, var(--nx-bg-subtle) 100%);
+}
+#nodea-ext-root[data-nx-theme="dark"] .nx-login {
+  background: radial-gradient(circle at 50% 12%, #1b1733 0%, var(--nx-tree-bg) 50%, #0e1014 100%);
+}
+
+/* dotted-grid canvas backdrop — Nodea's signature surface */
+.nx-login-stage {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--nx-grid-dot) 1.4px, transparent 1.4px);
+  background-size: 22px 22px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(circle at 50% 38%, #000 0%, transparent 72%);
+          mask-image: radial-gradient(circle at 50% 38%, #000 0%, transparent 72%);
+  opacity: .9;
+  pointer-events: none;
+}
+.nx-login-stage-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: .5;
+}
+.nx-login-stage-edges svg { width: 100%; height: 100%; display: block; }
+.nx-login-stage-edges path { fill: none; stroke: var(--nx-edge-color); stroke-width: 2; opacity: .3; }
+.nx-login-stage-edges circle { fill: var(--nx-node-bg); stroke: var(--nx-edge-color); stroke-width: 2; }
+
+/* ── Card ──────────────────────────────────────────────────────── */
+.nx-login-card {
+  position: relative;
+  z-index: 1;
+  margin: auto 0;
+  width: 100%;
+  max-width: 340px;
+  background: var(--nx-node-bg);
+  border: 1px solid var(--nx-border);
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(24, 20, 50, .05), 0 12px 30px rgba(76, 52, 140, .12), 0 2px 8px rgba(76, 52, 140, .06);
+  padding: 22px 22px 18px;
+  overflow: hidden;
+}
+.nx-login-card::before {
+  content: "";
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  width: 360px;
+  height: 260px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(139, 92, 246, .16), transparent 65%);
+  pointer-events: none;
+}
+
+/* ── Animated branch-tree graphic ──────────────────────────────── */
+.nx-tree-wrap { position: relative; }
+.nx-tree {
+  width: 150px;
+  height: 104px;
+  margin: 2px auto 14px;
+  display: block;
+  overflow: visible;
+}
+.nx-tree .nx-edge {
+  fill: none;
+  stroke: var(--nx-edge-color);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: var(--len);
+  stroke-dashoffset: var(--len);
+  animation: nxDraw 6s ease-in-out infinite;
+}
+.nx-tree .nx-edge.nx-active { stroke: var(--nx-accent); stroke-width: 3.4; }
+.nx-tree .nx-e2 { animation-delay: .35s; }
+.nx-tree .nx-e3 { animation-delay: .7s; }
+.nx-tree .nx-e4 { animation-delay: .9s; }
+@keyframes nxDraw {
+  0%       { stroke-dashoffset: var(--len); }
+  22%, 82% { stroke-dashoffset: 0; }
+  100%     { stroke-dashoffset: 0; }
+}
+.nx-tree .nx-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nxPop 6s ease-in-out infinite;
+}
+.nx-tree .nx-n2 { animation-delay: .35s; }
+.nx-tree .nx-n3 { animation-delay: .55s; }
+.nx-tree .nx-n4 { animation-delay: .9s; }
+.nx-tree .nx-n5 { animation-delay: 1.05s; }
+@keyframes nxPop {
+  0%, 8%   { transform: scale(0); opacity: 0; }
+  20%      { transform: scale(1.18); opacity: 1; }
+  26%, 86% { transform: scale(1); opacity: 1; }
+  100%     { transform: scale(1); opacity: 1; }
+}
+.nx-tree .nx-packet { animation: nxFade 6s ease-in-out infinite; }
+@keyframes nxFade {
+  0%, 26%   { opacity: 0; }
+  34%, 80%  { opacity: 1; }
+  92%, 100% { opacity: 0; }
+}
+.nx-tree .nx-halo {
+  animation: nxBreathe 2.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.nx-tree .nx-halo.nx-h2 { animation-delay: .6s; }
+@keyframes nxBreathe {
+  0%, 100% { opacity: .25; transform: scale(.9); }
+  50%      { opacity: .6;  transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-tree .nx-edge { stroke-dashoffset: 0; animation: none; }
+  .nx-tree .nx-node { transform: scale(1); opacity: 1; animation: none; }
+  .nx-tree .nx-packet { opacity: 1; animation: none; }
+  .nx-tree .nx-halo { animation: none; }
+}
+
+/* ── Brand lockup ──────────────────────────────────────────────── */
+.nx-login-brand { text-align: center; margin-bottom: 18px; }
+.nx-login-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+.nx-login-ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  box-shadow: 0 2px 6px rgba(109, 40, 217, .35);
+  display: block;
+}
+.nx-login-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--nx-text-primary);
+}
+.nx-login-tag {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--nx-text-muted);
+  font-weight: 500;
+}
+.nx-login-tag b { color: var(--nx-accent); font-weight: 600; }
+
+/* ── Tabs ──────────────────────────────────────────────────────── */
+.nx-login-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--nx-bg-muted);
+  border-radius: 9px;
+  padding: 3px;
+  margin-bottom: 14px;
+}
+.nx-login-tab {
+  flex: 1;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nx-text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .14s;
+}
+.nx-login-tab.nx-active {
+  background: var(--nx-node-bg);
+  border-color: var(--nx-border);
+  color: var(--nx-text-primary);
+  box-shadow: var(--nx-shadow-sm);
+}
+
+/* ── Fields ────────────────────────────────────────────────────── */
+.nx-login-field { margin-bottom: 11px; }
+.nx-login-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--nx-text-secondary);
+  margin: 0 0 5px 2px;
+}
+.nx-login-input-wrap { position: relative; display: flex; align-items: center; }
+.nx-login-input-wrap > svg {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--nx-text-muted);
+  pointer-events: none;
+}
+.nx-login-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 9px;
+  background: var(--nx-tree-bg);
+  color: var(--nx-text-primary);
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color .14s, box-shadow .14s, background .14s;
+}
+.nx-login-input::placeholder { color: var(--nx-text-muted); }
+.nx-login-input:focus {
+  border-color: var(--nx-accent);
+  background: var(--nx-node-bg);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, .13);
+}
+.nx-login-eye {
+  position: absolute;
+  right: 9px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: none;
+  color: var(--nx-text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.nx-login-eye svg { width: 16px; height: 16px; }
+.nx-login-eye:hover { color: var(--nx-text-secondary); background: var(--nx-bg-muted); }
+
+/* ── Stay signed in / Forgot ───────────────────────────────────── */
+.nx-login-row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 3px 2px 14px;
+}
+.nx-login-remember {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--nx-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+.nx-login-remember input { display: none; }
+.nx-login-box {
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--nx-border-strong);
+  border-radius: 5px;
+  background: var(--nx-node-bg);
+  display: grid;
+  place-items: center;
+  transition: all .12s;
+}
+.nx-login-remember input:checked + .nx-login-box {
+  background: var(--nx-accent);
+  border-color: var(--nx-accent);
+}
+.nx-login-box svg { width: 10px; height: 10px; color: #fff; opacity: 0; }
+.nx-login-remember input:checked + .nx-login-box svg { opacity: 1; }
+.nx-login-forgot {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nx-accent);
+  text-decoration: none;
+}
+.nx-login-forgot:hover { text-decoration: underline; }
+
+/* ── Inline message ────────────────────────────────────────────── */
+.nx-login-msg {
+  display: none;
+  font-size: 11.5px;
+  line-height: 1.4;
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-bottom: 11px;
+}
+.nx-login-msg.nx-show { display: block; }
+.nx-login-msg.nx-error { background: rgba(239, 68, 68, .12); color: #ef4444; }
+.nx-login-msg.nx-ok { background: rgba(22, 163, 74, .12); color: #16a34a; }
+
+/* ── Submit ────────────────────────────────────────────────────── */
+.nx-login-submit {
+  width: 100%;
+  height: 42px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--nx-accent), var(--nx-accent-deep, #6d28d9));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(109, 40, 217, .30);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: filter .14s, transform .08s, box-shadow .14s;
+}
+.nx-login-submit:hover { filter: brightness(1.07); box-shadow: 0 6px 16px rgba(109, 40, 217, .36); }
+.nx-login-submit:active { transform: translateY(1px); }
+.nx-login-submit:disabled { opacity: .75; cursor: default; }
+.nx-login-submit svg { width: 16px; height: 16px; }
+
+/* ── Footer ────────────────────────────────────────────────────── */
+.nx-login-foot {
+  margin: 16px 0 2px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--nx-text-muted);
+}
+.nx-login-foot a { color: var(--nx-text-secondary); text-decoration: none; font-weight: 500; }
+.nx-login-foot a:hover { color: var(--nx-accent); }
 
 /* Arm banner (which node the next prompt branches from) */
 .nx-armbar {
@@ -168,7 +617,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px 9px 12px;
+  padding: 14px 10px 14px 12px;
   border-top: 1px solid var(--nx-border);
   background: var(--nx-accent-bg);
   border-left: 3px solid var(--nx-accent);
@@ -257,4 +706,18 @@
   border: 1px solid var(--nx-border);
   border-radius: 8px;
   color: var(--nx-text-secondary);
+}
+/* App logo on the collapsed strip — clicking it expands the panel */
+.nx-strip-logo {
+  margin-top: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(109, 40, 217, .35);
+  transition: transform .12s, box-shadow .12s;
+}
+.nx-strip-logo:hover {
+  transform: scale(1.07);
+  box-shadow: 0 4px 10px rgba(109, 40, 217, .45);
 }

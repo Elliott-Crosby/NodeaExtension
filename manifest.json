@@ -1,15 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Nodea Tree for Claude",
+  "name": "Nodea Tree for Claude — Branch Map for claude.ai",
   "version": "0.2.0",
-  "description": "Surfaces the hidden branch tree inside Claude as a Nodea-style conversation map. Visualize, then open the whole tree in Nodea.",
+  "description": "For Claude (claude.ai) only. Surfaces Claude's hidden branch tree as a Nodea-style conversation map. Visualize, then open the whole tree in Nodea.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://claude.ai/*",
     "https://nodea.ai/*",
     "https://www.nodea.ai/*",
-    "http://localhost:3000/*",
-    "http://localhost:3001/*"
+    "https://kzqhpygdhphjaiymqcmq.supabase.co/*"
   ],
   "icons": {
     "16": "icons/icon16.png",
@@ -27,11 +26,18 @@
   "background": {
     "service_worker": "src/background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/icon128.png"],
+      "matches": ["https://claude.ai/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://claude.ai/*"],
       "js": [
         "src/util.js",
+        "src/auth.js",
         "src/adapters/claude.js",
         "src/adapters/claude-write.js",
         "src/tree.js",
@@ -44,9 +50,7 @@
     {
       "matches": [
         "https://nodea.ai/*",
-        "https://www.nodea.ai/*",
-        "http://localhost:3000/*",
-        "http://localhost:3001/*"
+        "https://www.nodea.ai/*"
       ],
       "js": ["src/bridge.js"],
       "run_at": "document_idle"

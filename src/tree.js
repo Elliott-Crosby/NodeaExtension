@@ -54,6 +54,16 @@
     this._applyGrid()
   }
 
+  TreeView.prototype._storageKey = function () {
+    return 'nx-view:' + window.location.pathname
+  }
+  TreeView.prototype._saveView = function () {
+    try { localStorage.setItem(this._storageKey(), JSON.stringify({ scale: this.scale, pan: this.pan })) } catch (_) {}
+  }
+  TreeView.prototype._loadView = function () {
+    try { return JSON.parse(localStorage.getItem(this._storageKey())) } catch (_) { return null }
+  }
+
   TreeView.prototype._bindPanZoom = function () {
     const self = this
     const c = this.container
@@ -77,9 +87,11 @@
           self.scale = next
           self.pan = { x: mx - ratio * (mx - self.pan.x), y: my - ratio * (my - self.pan.y) }
           self.render()
+          self._saveView()
         } else {
           self.pan = { x: self.pan.x - e.deltaX, y: self.pan.y - e.deltaY }
           self._applyTransform()
+          self._saveView()
         }
       },
       { passive: false }
@@ -105,6 +117,7 @@
       self.dragging = false
       self._drag = null
       c.style.cursor = 'grab'
+      self._saveView()
     }
     c.addEventListener('pointerup', endDrag)
     c.addEventListener('pointercancel', endDrag)
@@ -442,9 +455,14 @@
 
     if (!this._initialFitDone && positions.size > 0) {
       this._initialFitDone = true
-      setTimeout(function () {
-        self.fitView()
-      }, 60)
+      const saved = this._loadView()
+      if (saved) {
+        this.scale = saved.scale
+        this.pan = saved.pan
+        this._applyTransform()
+      } else {
+        setTimeout(function () { self.fitView() }, 60)
+      }
     }
   }
 

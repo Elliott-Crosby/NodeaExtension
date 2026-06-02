@@ -27,6 +27,23 @@
     full: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="0.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><rect x="0.5" y="7.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><rect x="7.5" y="7.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="4.5" x2="6" y2="6" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6" x2="2.5" y2="7.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6" x2="9.5" y2="7.5" stroke="currentColor" stroke-width="1.1"/></svg>',
   }
 
+  function _loadPanelWidth() {
+    try {
+      const w = parseInt(localStorage.getItem('nx-panel-width'), 10)
+      if (w >= MIN_WIDTH && w <= MAX_WIDTH) return w
+    } catch (_) {}
+    return DEFAULT_WIDTH
+  }
+
+  // Initials for the account avatar — up to two letters from the email's local
+  // part ("ada.lovelace@x.com" → "AL", "ada@x.com" → "AD").
+  function initialsForEmail(email) {
+    const local = String(email || '').split('@')[0]
+    const parts = local.split(/[.\-_+]+/).filter(Boolean)
+    let s = parts.length >= 2 ? parts[0].charAt(0) + parts[1].charAt(0) : local.slice(0, 2)
+    return (s || '?').toUpperCase()
+  }
+
   function Panel() {
     const self = this
     this.state = {
@@ -39,7 +56,7 @@
       currentLeaf: null,
     }
     this.collapsed = false
-    this.width = DEFAULT_WIDTH
+    this.width = _loadPanelWidth()
 
     // Root (own CSS-var scope so we never touch Claude's styles)
     this.root = el('div', {}, { id: 'nodea-ext-root' })
@@ -74,6 +91,7 @@
 
     document.body.appendChild(this.root)
     this._pushContent(this.width)
+    this._initAuth()
   }
 
   Panel.prototype._applyTheme = function () {
@@ -106,6 +124,7 @@
       function up() {
         window.removeEventListener('mousemove', move)
         window.removeEventListener('mouseup', up)
+        try { localStorage.setItem('nx-panel-width', String(self.width)) } catch (_) {}
         self.tree && self.tree.render()
       }
       window.addEventListener('mousemove', move)
@@ -117,16 +136,22 @@
   Panel.prototype._buildHeader = function () {
     const self = this
     const header = el('div', {}, { class: 'nx-header' })
+    this._header = header
+
+    // App logo — top-left corner.
+    const iconURL = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
+      ? chrome.runtime.getURL('icons/icon128.png') : ''
+    if (iconURL) header.appendChild(el('img', {}, { class: 'nx-logo', src: iconURL, alt: 'Nodea' }))
 
     const collapseBtn = el('button', {}, { class: 'nx-icon-btn', title: 'Collapse tree', html: ICONS.collapse })
     collapseBtn.addEventListener('click', function () { self.setCollapsed(true) })
     header.appendChild(collapseBtn)
 
-    const titleSpan = el('span', {
-      fontSize: '13px', fontWeight: '600', color: 'var(--nx-text-primary)', flex: '1',
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-    }, { text: 'Conversation Tree' })
-    header.appendChild(titleSpan)
+    // Nodea wordmark — centered in the header.
+    header.appendChild(el('span', {}, { class: 'nx-wordmark', text: 'Nodea' }))
+
+    // Spacer pushes the view toggle + count to the right edge.
+    header.appendChild(el('div', { flex: '1' }))
 
     // view toggle
     const toggle = el('div', {}, { class: 'nx-toggle' })
@@ -142,6 +167,7 @@
       toggle.appendChild(b)
     })
     header.appendChild(toggle)
+    this._viewToggle = toggle
 
     this._countBadge = el('span', {}, { class: 'nx-count', text: '0' })
     header.appendChild(this._countBadge)
@@ -149,14 +175,323 @@
     this.dock.appendChild(header)
   }
 
+  // Auth is a hard gate: until you sign in to Nodea (the extension's OWN session,
+  // parallel to the website), the panel shows the login screen and the tree stays
+  // hidden — no using Nodea without an account. The footer carries the handoff +
+  // identity once you're in.
   Panel.prototype._buildFooter = function () {
     const self = this
-    const footer = el('div', {}, { class: 'nx-footer' })
+    this._authMode = 'signin'
+    this._showPwd = false
+    this._footer = el('div', {}, { class: 'nx-footer' })
+    this.dock.appendChild(this._footer)
+    // Dismiss the account popup on any click outside it.
+    window.addEventListener('click', function () { self._closeAcctMenu() })
+  }
+
+  // Load the extension's stored session, then keep the panel in sync with any
+  // login / logout / token refresh (here or in another Claude tab).
+  Panel.prototype._initAuth = function () {
+    const self = this
+    if (!NX.auth) { this._applyAuthState(); return }
+    NX.auth.getSession().then(function (s) { self._session = s; self._applyAuthState() })
+    NX.auth.onChange(function (s) { self._session = s; self._applyAuthState() })
+  }
+
+  Panel.prototype._applyAuthState = function () {
+    this._authed = !!(this._session && this._session.user)
+    // Header view-toggle + count are meaningless while gated (collapse stays).
+    if (this._viewToggle) this._viewToggle.style.display = this._authed ? '' : 'none'
+    if (this._countBadge) this._countBadge.style.display = this._authed ? '' : 'none'
+    if (!this._authed) this._disarmBranch()
+    this._renderFooter()
+    this._renderBody()
+  }
+
+  Panel.prototype._renderFooter = function () {
+    if (!this._footer) return
+    if (!this._authed) { this._footer.style.display = 'none'; this._footer.innerHTML = ''; this._openBtn = null; return }
+    this._footer.style.display = ''
+    this._footer.innerHTML = ''
+    this._renderAccount()
+  }
+
+  // ── Signed in: handoff + identity ──────────────────────────────────────────
+  // The identity collapses to a small initials avatar in the footer's bottom-left
+  // (mirrors the nodea.ai/app sidebar). Clicking it pops up the email + Log out.
+  Panel.prototype._renderAccount = function () {
+    const self = this
+    const email = (this._session.user && this._session.user.email) || 'your account'
+
+    const row = el('div', {}, { class: 'nx-foot-row' })
+
+    const acct = el('div', {}, { class: 'nx-acct' })
+
+    // Popup (hidden until the avatar is clicked) — anchored above the avatar.
+    const menu = el('div', {}, { class: 'nx-acct-menu' })
+    menu.appendChild(el('div', {}, { class: 'nx-acct-menu-email', text: email, title: email }))
+    const logout = el('button', {}, { class: 'nx-acct-logout', text: 'Log out' })
+    logout.addEventListener('click', function () { self._logout() })
+    menu.appendChild(logout)
+    menu.addEventListener('click', function (e) { e.stopPropagation() })
+    acct.appendChild(menu)
+    this._acctMenu = menu
+    this._acctMenuOpen = false
+
+    const avatar = el('button', {}, {
+      class: 'nx-acct-avatar',
+      text: initialsForEmail(email),
+      title: 'Signed in to Nodea as ' + email,
+    })
+    avatar.addEventListener('click', function (e) {
+      e.stopPropagation()
+      self._toggleAcctMenu()
+    })
+    acct.appendChild(avatar)
+    row.appendChild(acct)
+
+    // Secondary, low-key upsell link to the full app's extra features.
+    const more = el('a', {}, {
+      class: 'nx-more-link',
+      html: 'More with Nodea&nbsp;→',
+      href: 'https://nodea.ai',
+      target: '_blank',
+      rel: 'noopener',
+      title: 'Merge branches, sticky notes, colors & search — only in the full app',
+    })
+    row.appendChild(more)
+
     const btn = el('button', {}, { class: 'nx-open-btn', html: 'Open in Nodea&nbsp;→' })
     btn.addEventListener('click', function () { self._openInNodea() })
     this._openBtn = btn
-    footer.appendChild(btn)
-    this.dock.appendChild(footer)
+    row.appendChild(btn)
+
+    this._footer.appendChild(row)
+  }
+
+  Panel.prototype._toggleAcctMenu = function () {
+    if (this._acctMenuOpen) this._closeAcctMenu()
+    else this._openAcctMenu()
+  }
+  Panel.prototype._openAcctMenu = function () {
+    if (!this._acctMenu) return
+    this._acctMenu.style.display = 'flex'
+    this._acctMenuOpen = true
+  }
+  Panel.prototype._closeAcctMenu = function () {
+    if (!this._acctMenu) return
+    this._acctMenu.style.display = 'none'
+    this._acctMenuOpen = false
+  }
+
+  // ── Signed out: full-panel login (implements the "Nodea Login.html" design) ──
+  // An animated branch-map graphic (edges draw in, nodes pop, a packet travels
+  // the active path) over Nodea's dotted-grid surface, then the brand lockup,
+  // Sign in / Create account tabs, and email + password fields.
+  Panel.prototype._authTreeSVG = function () {
+    return (
+      '<svg class="nx-tree" viewBox="0 0 168 116" aria-label="A conversation branch map">' +
+        '<defs>' +
+          '<radialGradient id="nxHalo" cx="50%" cy="50%" r="50%">' +
+            '<stop offset="0" stop-color="#8b5cf6" stop-opacity=".55" />' +
+            '<stop offset="1" stop-color="#8b5cf6" stop-opacity="0" />' +
+          '</radialGradient>' +
+          '<path id="nxFlow" d="M84,18 C84,40 122,40 122,60 C122,80 138,82 138,100" />' +
+        '</defs>' +
+        '<path class="nx-edge nx-e1" style="--len:95" d="M84,18 C84,40 46,40 46,60" />' +
+        '<path class="nx-edge nx-active nx-e2" style="--len:95" d="M84,18 C84,40 122,40 122,60" />' +
+        '<path class="nx-edge nx-e3" style="--len:75" d="M122,60 C122,80 102,82 102,100" />' +
+        '<path class="nx-edge nx-active nx-e4" style="--len:75" d="M122,60 C122,80 138,82 138,100" />' +
+        '<circle class="nx-halo" cx="122" cy="60" r="17" fill="url(#nxHalo)" />' +
+        '<circle class="nx-halo nx-h2" cx="138" cy="100" r="17" fill="url(#nxHalo)" />' +
+        '<g class="nx-node nx-n1"><circle cx="84" cy="18" r="9.5" fill="#7c3aed" /><circle cx="84" cy="18" r="3.4" fill="#fff" /></g>' +
+        '<g class="nx-node nx-n2"><circle cx="46" cy="60" r="8.5" fill="#fff" stroke="#c4b5fd" stroke-width="3" /></g>' +
+        '<g class="nx-node nx-n3"><circle cx="122" cy="60" r="9.5" fill="#7c3aed" /><circle cx="122" cy="60" r="3.4" fill="#fff" /></g>' +
+        '<g class="nx-node nx-n4"><circle cx="102" cy="100" r="8.5" fill="#fff" stroke="#c4b5fd" stroke-width="3" /></g>' +
+        '<g class="nx-node nx-n5"><circle cx="138" cy="100" r="9.5" fill="#7c3aed" /><circle cx="138" cy="100" r="3.4" fill="#fff" /></g>' +
+        '<g class="nx-packet">' +
+          '<circle r="4.5" fill="#fff" stroke="#7c3aed" stroke-width="2.5">' +
+            '<animateMotion dur="3s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="linear">' +
+              '<mpath href="#nxFlow" />' +
+            '</animateMotion>' +
+          '</circle>' +
+        '</g>' +
+      '</svg>'
+    )
+  }
+
+  Panel.prototype._renderAuthScreen = function () {
+    const self = this
+    const mode = this._authMode
+    const SIGNUP = mode === 'signup'
+    const MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>'
+    const LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
+    const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
+    const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="m2 2 20 20"/></svg>'
+    const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+    const iconURL = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
+      ? chrome.runtime.getURL('icons/icon128.png') : ''
+
+    const wrap = el('div', {}, { class: 'nx-login' })
+
+    // Backdrop: dotted-grid surface + faint background bezier edges.
+    wrap.appendChild(el('div', {}, { class: 'nx-login-stage' }))
+    wrap.appendChild(el('div', {}, {
+      class: 'nx-login-stage-edges',
+      html:
+        '<svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true">' +
+          '<path d="M180,140 C180,260 360,240 360,360" /><path d="M180,140 C180,300 60,320 60,440" />' +
+          '<path d="M1030,640 C1030,520 880,540 880,420" /><path d="M1030,640 C1030,720 1140,720 1140,760" />' +
+          '<circle cx="180" cy="140" r="6" /><circle cx="360" cy="360" r="5" /><circle cx="60" cy="440" r="5" />' +
+          '<circle cx="1030" cy="640" r="6" /><circle cx="880" cy="420" r="5" />' +
+        '</svg>',
+    }))
+
+    const card = el('div', {}, { class: 'nx-login-card' })
+
+    // Animated branch map — what Nodea draws.
+    card.appendChild(el('div', {}, { class: 'nx-tree-wrap', html: this._authTreeSVG() }))
+
+    // Brand lockup.
+    const brand = el('div', {}, { class: 'nx-login-brand' })
+    const row = el('div', {}, { class: 'nx-login-brand-row' })
+    if (iconURL) row.appendChild(el('img', {}, { class: 'nx-login-ico', src: iconURL, alt: 'Nodea' }))
+    row.appendChild(el('span', {}, { class: 'nx-login-name', text: 'Nodea Tree' }))
+    brand.appendChild(row)
+    brand.appendChild(el('div', {}, { class: 'nx-login-tag', html: 'Branch maps <b>for Claude</b>' }))
+    card.appendChild(brand)
+
+    // Tabs.
+    const tabs = el('div', {}, { class: 'nx-login-tabs' })
+    ;[['signin', 'Sign in'], ['signup', 'Create account']].forEach(function (t) {
+      const b = el('button', {}, { class: 'nx-login-tab' + (mode === t[0] ? ' nx-active' : ''), type: 'button', text: t[1] })
+      b.addEventListener('click', function () {
+        if (self._authMode === t[0]) return
+        self._authMode = t[0]
+        self._rebuildAuthScreen()
+      })
+      tabs.appendChild(b)
+    })
+    card.appendChild(tabs)
+
+    // Email field.
+    const emailField = el('div', {}, { class: 'nx-login-field' })
+    emailField.appendChild(el('label', {}, { class: 'nx-login-label', text: 'Email' }))
+    const emailWrap = el('div', {}, { class: 'nx-login-input-wrap', html: MAIL })
+    const emailIn = el('input', {}, { class: 'nx-login-input', type: 'email', placeholder: 'you@example.com', autocomplete: 'email' })
+    if (this._authEmail) emailIn.value = this._authEmail
+    emailIn.addEventListener('input', function () { self._authEmail = emailIn.value })
+    emailWrap.appendChild(emailIn)
+    emailField.appendChild(emailWrap)
+    card.appendChild(emailField)
+
+    // Password field with eye toggle.
+    const pwField = el('div', {}, { class: 'nx-login-field' })
+    pwField.appendChild(el('label', {}, { class: 'nx-login-label', text: 'Password' }))
+    const pwWrap = el('div', {}, { class: 'nx-login-input-wrap', html: LOCK })
+    const pwdIn = el('input', {}, {
+      class: 'nx-login-input', type: this._showPwd ? 'text' : 'password',
+      placeholder: '••••••••', autocomplete: SIGNUP ? 'new-password' : 'current-password',
+    })
+    pwWrap.appendChild(pwdIn)
+    const eye = el('button', {}, { class: 'nx-login-eye', type: 'button', 'aria-label': 'Show password', html: this._showPwd ? EYE_OFF : EYE })
+    eye.addEventListener('click', function () {
+      self._showPwd = !self._showPwd
+      pwdIn.type = self._showPwd ? 'text' : 'password'
+      eye.innerHTML = self._showPwd ? EYE_OFF : EYE
+      pwdIn.focus()
+    })
+    pwWrap.appendChild(eye)
+    pwField.appendChild(pwWrap)
+    card.appendChild(pwField)
+
+    // Stay signed in + Forgot.
+    const rowBetween = el('div', {}, { class: 'nx-login-row-between' })
+    const remember = el('label', {}, { class: 'nx-login-remember' })
+    const cb = el('input', {}, { type: 'checkbox' })
+    cb.checked = true
+    remember.appendChild(cb)
+    remember.appendChild(el('span', {}, { class: 'nx-login-box', html: CHECK }))
+    remember.appendChild(document.createTextNode('Stay signed in'))
+    rowBetween.appendChild(remember)
+    const forgot = el('a', {}, { class: 'nx-login-forgot', href: 'https://nodea.ai/login', target: '_blank', rel: 'noopener', text: 'Forgot?' })
+    rowBetween.appendChild(forgot)
+    card.appendChild(rowBetween)
+
+    // Inline message (validation / auth errors / notices).
+    const msg = el('div', {}, { class: 'nx-login-msg' })
+    card.appendChild(msg)
+    const setMsg = function (text, kind) {
+      msg.textContent = text || ''
+      msg.className = 'nx-login-msg' + (text ? ' nx-show nx-' + kind : '')
+    }
+
+    // Submit.
+    const submitLabel = SIGNUP ? 'Create account' : 'Sign in'
+    const submit = el('button', {}, { class: 'nx-login-submit', type: 'button', html: '<span>' + submitLabel + '</span>' + ARROW })
+    card.appendChild(submit)
+
+    const submitForm = function () {
+      const email = emailIn.value.trim()
+      const password = pwdIn.value
+      if (!/.+@.+\..+/.test(email)) { setMsg('Enter a valid email.', 'error'); emailIn.focus(); return }
+      if (!password || (SIGNUP && password.length < 8)) {
+        setMsg(SIGNUP ? 'Password needs at least 8 characters.' : 'Enter your password.', 'error')
+        pwdIn.focus(); return
+      }
+      submit.disabled = true
+      submit.innerHTML = '<span>' + (SIGNUP ? 'Creating…' : 'Just a sec…') + '</span>'
+      setMsg('')
+      const op = SIGNUP ? NX.auth.signUp(email, password) : NX.auth.signIn(email, password)
+      op.then(function (r) {
+        if (r && r.ok && r.session) {
+          self._session = r.session
+          self._authEmail = ''
+          self._applyAuthState() // tree unlocks
+        } else if (r && r.ok && r.needsConfirm) {
+          self._authMode = 'signin'
+          self._pendingNotice = { text: 'Check your email to confirm, then sign in.', kind: 'ok' }
+          self._rebuildAuthScreen()
+        } else {
+          submit.disabled = false
+          submit.innerHTML = '<span>' + submitLabel + '</span>' + ARROW
+          setMsg((r && r.error) || 'Something went wrong.', 'error')
+        }
+      })
+    }
+    submit.addEventListener('click', submitForm)
+    ;[emailIn, pwdIn].forEach(function (inp) {
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); submitForm() } })
+    })
+
+    // Footer — separate-login note + terms.
+    card.appendChild(el('p', {}, {
+      class: 'nx-login-foot',
+      html: 'Your extension login is separate from the website.<br/>By continuing you agree to the ' +
+        '<a href="https://nodea.ai/privacy" target="_blank" rel="noopener">Terms</a> &amp; ' +
+        '<a href="https://nodea.ai/privacy" target="_blank" rel="noopener">Privacy</a>.',
+    }))
+
+    wrap.appendChild(card)
+
+    if (this._pendingNotice) { setMsg(this._pendingNotice.text, this._pendingNotice.kind); this._pendingNotice = null }
+
+    return wrap
+  }
+
+  // Force the gated body to rebuild the login screen (tab/mode switches, notices).
+  Panel.prototype._rebuildAuthScreen = function () {
+    if (this._authed || !this.body) return
+    this.body.innerHTML = ''
+    this.body.appendChild(this._renderAuthScreen())
+  }
+
+  Panel.prototype._logout = function () {
+    this._session = null
+    this._authMode = 'signin'
+    this._applyAuthState()
+    if (NX.auth) NX.auth.signOut()
   }
 
   Panel.prototype._buildColorMenu = function () {
@@ -371,6 +706,14 @@
   }
 
   Panel.prototype._renderBody = function () {
+    // Gate: no tree until signed in. Keep an already-mounted login screen as-is
+    // (a background tree update must not wipe a half-typed email/password).
+    if (!this._authed) {
+      if (this.body.querySelector('.nx-login')) return
+      this.body.innerHTML = ''
+      this.body.appendChild(this._renderAuthScreen())
+      return
+    }
     // swap body content
     this.body.innerHTML = ''
     if (this.state.viewMode === 'outline') {
@@ -423,12 +766,18 @@
     const self = this
     if (!this._strip) {
       const strip = el('div', {}, { class: 'nx-strip' })
+      // The purple Nodea app logo IS the expand control while collapsed — click
+      // it to bring the diagram back out (same as the arrow).
+      const iconURL = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
+        ? chrome.runtime.getURL('icons/icon128.png') : ''
+      if (iconURL) {
+        const logo = el('img', {}, { class: 'nx-strip-logo', src: iconURL, alt: 'Expand Nodea tree', title: 'Expand tree' })
+        logo.addEventListener('click', function () { self.setCollapsed(false) })
+        strip.appendChild(logo)
+      }
       const b = el('button', {}, { class: 'nx-icon-btn nx-strip-btn', title: 'Expand tree', html: ICONS.expand })
       b.addEventListener('click', function () { self.setCollapsed(false) })
       strip.appendChild(b)
-      strip.appendChild(el('div', { marginTop: '16px', opacity: '0.22', color: 'var(--nx-text-primary)' }, {
-        html: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="6" y="1" width="6" height="4" rx="1.2" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="13" width="5" height="4" rx="1.2" stroke="currentColor" stroke-width="1.2"/><rect x="12" y="13" width="5" height="4" rx="1.2" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="5" x2="9" y2="9" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="9" x2="3.5" y2="13" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="9" x2="14.5" y2="13" stroke="currentColor" stroke-width="1.2"/></svg>',
-      }))
       this._strip = strip
       this.root.appendChild(strip)
     }
@@ -445,6 +794,8 @@
   // Claude message id is what later lets "Update Conversation" diff & re-sync.
   Panel.prototype._openInNodea = async function () {
     const self = this
+    // Gate the handoff on the extension's own Nodea session.
+    if (!this._session || !this._session.user) { this._renderFooter(); return }
     const setBtn = function (html, disabled) {
       if (self._openBtn) { self._openBtn.innerHTML = html; self._openBtn.disabled = !!disabled }
     }
