@@ -18,8 +18,10 @@ conversation into the real app.
 - Tree / Outline / Full view toggle, node count, collapse, drag-to-resize — mirroring
   the live `TreePanel`.
 - Per-node colors (saved per conversation via `chrome.storage`).
-- **Open in Nodea** — copies the active branch as Markdown and opens the Nodea app.
-  _(The structured tree-import handshake is a follow-up; no import endpoint exists yet.)_
+- **Open in Nodea** — hands the **whole branch tree** to Nodea, which rebuilds it as a
+  real conversation (every branch, parent links + per-node Claude message ids preserved)
+  so a later "Update Conversation" can diff & re-sync. Transport is the Nodea-side bridge
+  (`src/bridge.js`); falls back to Markdown-on-clipboard if extension storage is unavailable.
 - Light/dark theme auto-detected from Claude.
 
 ## How to test (no localhost — load unpacked)
@@ -66,7 +68,8 @@ trusting it. The fastest check (per the vault doc) is the no-code recon:
 | `src/tree.js` | Canvas renderer — grid, edges, node cards, pan/zoom/fit |
 | `src/panel.js` | Panel shell — header, view toggle, outline, color menu, collapse/resize, Open-in-Nodea |
 | `src/content.js` | Orchestrator — mount, fetch, SPA-navigation + poll refresh |
-| `src/background.js` | Toolbar-click → toggle relay |
+| `src/bridge.js` | **Nodea-side** content script — relays the "Open in Nodea" payload (stashed in `chrome.storage`) into the logged-in Nodea app tab via `postMessage` |
+| `src/background.js` | Service worker — toolbar-toggle relay **+ `NX_FETCH_TREE`**: re-fetches a Claude tree (direct credentialed GET, falling back to an open claude.ai tab) for Nodea's "Update Conversation" |
 | `src/theme.css` | Scoped `--nx-*` tokens mirroring `globals.css` (light + dark) |
 
 ## Write features (Version B — validated 2026-06-02 on live Claude)
@@ -85,7 +88,18 @@ Known limits: nodes are matched by message text + depth (Claude exposes no messa
 the DOM), so **assistant-retry siblings** (identical user text) and exact-duplicate prompts
 aren't individually addressable yet. User-edit branches work.
 
+## Update sync (Claude → Nodea, validated path 2026-06-02)
+
+Imported conversations get an **"Update"** button in Nodea's chat header. Clicking it asks the
+extension (page → `bridge.js` → service worker) to re-fetch the original Claude tree by its
+stored `source_conversation_id`; Nodea then diffs by `source_message_id` and appends only the
+new branches. **Append-only / non-destructive** — Claude-side deletions stay in Nodea, and
+in-place text edits aren't patched (Claude forks edits into new messages, which arrive as new
+nodes). The service worker fetches Claude directly with your cookies; if Claude rejects the
+extension-origin request, it falls back to any open `claude.ai` tab.
+
 ## Not in v1 (deliberately)
 
 - ChatGPT / Gemini / Grok adapters — each is a new file under `src/adapters/`; Claude proves the pattern.
-- Sticky notes, full Nodea import handshake.
+- Sticky notes; **reverse sync** (push Nodea edits back into Claude) — the remaining
+  direction, building on the same source ids. (Claude→Nodea import + "Update" are done.)

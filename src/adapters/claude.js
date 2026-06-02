@@ -103,8 +103,19 @@
     host: 'claude',
     conversationIdFromUrl,
 
+    // Exposed so the panel can stamp the org id into the "Open in Nodea" payload
+    // — Nodea needs it to re-fetch this conversation's tree on a later update
+    // (Claude scopes conversations under /organizations/{org}/...).
+    getOrgId,
+
     async fetchTree() {
-      const convoId = conversationIdFromUrl()
+      return this.fetchTreeById(conversationIdFromUrl())
+    },
+
+    // Fetch + normalize an *arbitrary* conversation by id (not just the one in
+    // the URL). Used by "Update Conversation": Nodea asks the extension to
+    // re-pull a previously-imported Claude conversation so it can diff & sync.
+    async fetchTreeById(convoId) {
       if (!convoId) return null
       const orgId = await getOrgId()
       const url =

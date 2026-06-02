@@ -11,6 +11,10 @@
   const MIN_WIDTH = 240
   const MAX_WIDTH = 720
 
+  // Where "Open in Nodea" sends the tree. For local Nodea dev, change this to
+  // 'http://localhost:3000/app' (the bridge content script already matches it).
+  const NODEA_APP_URL = 'https://nodea.ai/app'
+
   function icon(html, size) {
     size = size || 14
     return `<svg width="${size}" height="${size}" viewBox="0 0 14 14" fill="none">${html}</svg>`
@@ -32,6 +36,7 @@
       colors: {},
       convId: null,
       convName: 'Conversation',
+      currentLeaf: null,
     }
     this.collapsed = false
     this.width = DEFAULT_WIDTH
@@ -51,9 +56,10 @@
     this.body = el('div', { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0', position: 'relative' })
     this.dock.appendChild(this.body)
 
-    this._buildComposer()
+    this._buildArmBanner()
     this._buildFooter()
     this._buildColorMenu()
+    this._installSendInterceptor()
 
     this.tree = new NX.TreeView(this.body, this.state, {
       onSelect: function (id, pair) { self._onNodeSelect(id, pair) },
@@ -67,6 +73,7 @@
     this._themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] })
 
     document.body.appendChild(this.root)
+    this._pushContent(this.width)
   }
 
   Panel.prototype._applyTheme = function () {
@@ -94,6 +101,7 @@
         const delta = ox - ev.clientX
         self.width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, ow + delta))
         self.dock.style.width = self.width + 'px'
+        self._pushContent(self.width)
       }
       function up() {
         window.removeEventListener('mousemove', move)
@@ -146,6 +154,7 @@
     const footer = el('div', {}, { class: 'nx-footer' })
     const btn = el('button', {}, { class: 'nx-open-btn', html: 'Open in Nodea&nbsp;→' })
     btn.addEventListener('click', function () { self._openInNodea() })
+    this._openBtn = btn
     footer.appendChild(btn)
     this.dock.appendChild(footer)
   }
@@ -237,88 +246,117 @@
     return wrap
   }
 
-  // ── Node selection: highlight + navigate Claude to that spot ──────────────
+  // ── Node selection: highlight, navigate Claude there, arm branching ───────
   Panel.prototype._onNodeSelect = function (id, pair) {
     const self = this
     this.state.selectedNodeId = id
     if (this.state.viewMode === 'outline') this._renderBody()
     else this.tree && this.tree.render()
     this._selectedPair = pair
-    this._showComposer(pair)
+    // Arm branching: the user's NEXT prompt in Claude's own box forks from here.
+    if (pair) this._armBranch(pair)
     // Drive Claude's native UI to display this branch (the "go to that spot").
     if (NX.write && pair) {
       const pairs = NX.buildPairs(this.state.nodes || [])
       const target = pairs.find((p) => p.id === pair.id) || pair
       NX.write.navigateAndReveal(pairs, target).then(function (res) {
-        if (res && !res.ok) self._setComposerStatus('Couldn’t jump to this branch (' + res.reason + ')')
+        if (res && !res.ok) self._setArmStatus('Couldn’t jump to this branch (' + res.reason + ')')
       })
     }
   }
 
-  // ── Branch composer (fork from the selected node) ─────────────────────────
-  Panel.prototype._buildComposer = function () {
+  // ── Arm banner: shows which node the next prompt will branch from ──────────
+  Panel.prototype._buildArmBanner = function () {
     const self = this
-    const box = el('div', { display: 'none' }, { class: 'nx-compose' })
-
-    this._composeLabel = el('div', {}, { class: 'nx-compose-label', text: 'Branch from this node' })
-    box.appendChild(this._composeLabel)
-
-    this._composeInput = el('textarea', {}, {
-      class: 'nx-compose-input',
-      placeholder: 'Type a new prompt to branch from here…',
-      rows: '2',
-    })
-    this._composeInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); self._doFork() }
-    })
-    box.appendChild(this._composeInput)
-
-    const row = el('div', { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' })
-    this._composeStatus = el('div', {}, { class: 'nx-compose-status', text: '' })
-    row.appendChild(this._composeStatus)
-    this._composeBtn = el('button', {}, { class: 'nx-compose-btn', html: 'Branch&nbsp;↳' })
-    this._composeBtn.addEventListener('click', function () { self._doFork() })
-    row.appendChild(this._composeBtn)
-    box.appendChild(row)
-
-    this._composeBox = box
-    this.dock.appendChild(box)
+    const bar = el('div', { display: 'none' }, { class: 'nx-armbar' })
+    const main = el('div', { flex: '1', minWidth: '0' })
+    this._armLabel = el('div', {}, { class: 'nx-arm-label', text: 'Branching' })
+    this._armStatus = el('div', {}, { class: 'nx-arm-status', text: '' })
+    main.appendChild(this._armLabel)
+    main.appendChild(this._armStatus)
+    bar.appendChild(main)
+    const x = el('button', {}, { class: 'nx-arm-x', title: 'Cancel branching (Esc)', html: '✕' })
+    x.addEventListener('click', function () { self._disarmBranch() })
+    bar.appendChild(x)
+    this._armBar = bar
+    this.dock.appendChild(bar)
   }
 
-  Panel.prototype._showComposer = function (pair) {
-    if (!this._composeBox) return
-    const title = pair ? NX.generateTitle(pair.userNode.content) : ''
-    this._composeLabel.textContent = 'Branch from: ' + title
-    this._composeStatus.textContent = ''
-    this._composeBox.style.display = 'block'
+  Panel.prototype._armBranch = function (pair) {
+    this._armed = pair
+    const title = NX.generateTitle(pair.userNode.content)
+    this._armLabel.textContent = '↳ Branching from: ' + title
+    this._armStatus.textContent = 'Type your prompt in Claude’s box — it forks here.'
+    this._armBar.style.display = 'flex'
   }
 
-  Panel.prototype._setComposerStatus = function (msg) {
-    if (this._composeStatus) this._composeStatus.textContent = msg
+  Panel.prototype._disarmBranch = function () {
+    this._armed = null
+    if (this._armBar) this._armBar.style.display = 'none'
   }
 
-  Panel.prototype._doFork = function () {
+  Panel.prototype._setArmStatus = function (msg) {
+    if (this._armStatus) this._armStatus.textContent = msg
+  }
+
+  // Intercept Claude's native send (Enter / Send button) while armed, and
+  // reroute it to fork from the selected node instead of appending at the leaf.
+  Panel.prototype._installSendInterceptor = function () {
     const self = this
-    const text = (this._composeInput.value || '').trim()
-    if (!text) { this._setComposerStatus('Type a prompt first.'); return }
-    if (!this._selectedPair || !NX.write) { this._setComposerStatus('Select a node first.'); return }
+    const readComposer = function () {
+      const ci = document.querySelector('[data-testid="chat-input"]')
+      return ci ? (ci.textContent || '') : ''
+    }
+    const clearComposer = function () {
+      const ci = document.querySelector('[data-testid="chat-input"]')
+      if (!ci) return
+      ci.focus()
+      document.execCommand('selectAll', false, null)
+      document.execCommand('delete', false, null)
+    }
+    const trigger = function (e) {
+      const text = readComposer().trim()
+      if (!text) return false // empty: let Claude handle normally
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      clearComposer()
+      self._performFork(self._armed, text)
+      return true
+    }
+    document.addEventListener('keydown', function (e) {
+      if (!self._armed) return
+      if (e.key === 'Escape') { self._disarmBranch(); return }
+      const ci = e.target.closest && e.target.closest('[data-testid="chat-input"]')
+      if (ci && e.key === 'Enter' && !e.shiftKey) trigger(e)
+    }, true)
+    document.addEventListener('click', function (e) {
+      if (!self._armed) return
+      const btn = e.target.closest && e.target.closest('button[aria-label="Send message"]')
+      if (btn) trigger(e)
+    }, true)
+  }
+
+  Panel.prototype._performFork = function (target, text) {
+    const self = this
+    if (!target || !NX.write) return
+    this._armed = null // stop intercepting so our own programmatic send isn't blocked
+    this._setArmStatus('Branching…')
     const pairs = NX.buildPairs(this.state.nodes || [])
-    const target = pairs.find((p) => p.id === self._selectedPair.id) || self._selectedPair
-    this._composeBtn.disabled = true
-    this._setComposerStatus('Branching…')
-    NX.write.forkFromNode(pairs, target, text).then(function (res) {
-      self._composeBtn.disabled = false
+    const t = pairs.find((p) => p.id === target.id) || target
+    NX.write.forkFromNode(pairs, t, text).then(function (res) {
       if (res && res.ok) {
-        self._composeInput.value = ''
-        self._setComposerStatus(res.mode === 'continue' ? 'Continuing…' : 'Branch created — generating…')
-        // Repopulate the tree once the new reply has had time to stream.
+        self._setArmStatus(res.mode === 'continue' ? 'Continuing…' : 'Branch created — generating…')
         if (NX.requestRefresh) {
           setTimeout(NX.requestRefresh, 2500)
           setTimeout(NX.requestRefresh, 6000)
-          setTimeout(function () { NX.requestRefresh(); self._setComposerStatus('') }, 9000)
+          setTimeout(function () { NX.requestRefresh(); self._disarmBranch() }, 9000)
+        } else {
+          setTimeout(function () { self._disarmBranch() }, 4000)
         }
       } else {
-        self._setComposerStatus('Failed: ' + ((res && res.reason) || 'unknown'))
+        // Re-arm so the user can retry from the same node.
+        self._armed = t
+        self._setArmStatus('Failed: ' + ((res && res.reason) || 'unknown') + ' — try again')
       }
     })
   }
@@ -347,15 +385,35 @@
     }
   }
 
-  // ── Collapse ──────────────────────────────────────────────────────────────
+  // ── Push Claude's content over so the fixed panel never covers it ──────────
+  // We reserve space by putting a right margin on <body>: Claude's chat column is
+  // a %-width child of <body>, so the margin reflows it leftward, while the panel
+  // (position:fixed) ignores the margin and stays flush against the reclaimed
+  // edge. Deliberately NOT <main>: on a real conversation page (/chat/<uuid>)
+  // there is no <main> element — it only exists on /new — so targeting <main>
+  // pushed nothing on the very pages where the panel actually mounts. No
+  // transition: drag-resize sets a new width every pointermove, and easing each
+  // step would make the content lag behind the dock edge.
+  Panel.prototype._pushContent = function (width) {
+    if (!this._pushStyle) {
+      this._pushStyle = document.createElement('style')
+      this._pushStyle.id = 'nx-push-style'
+      document.head.appendChild(this._pushStyle)
+    }
+    const w = Math.max(0, width | 0)
+    this._pushStyle.textContent = 'body { margin-right: ' + w + 'px !important; }'
+  }
+
   Panel.prototype.setCollapsed = function (collapsed) {
     this.collapsed = collapsed
     if (collapsed) {
       this.dock.style.display = 'none'
       this._showStrip()
+      this._pushContent(48)
     } else {
       if (this._strip) this._strip.style.display = 'none'
       this.dock.style.display = 'flex'
+      this._pushContent(this.width)
       this.tree && this.tree.render()
     }
   }
@@ -377,11 +435,73 @@
     this._strip.style.display = 'flex'
   }
 
-  // ── Open in Nodea (handoff) ───────────────────────────────────────────────
-  // No import endpoint exists yet (it's on the roadmap), so v1 copies the active
-  // branch as Markdown to the clipboard and opens the Nodea app. The structured
-  // tree-import handshake is the follow-up.
-  Panel.prototype._openInNodea = function () {
+  // ── Open in Nodea (structured tree import) ────────────────────────────────
+  // Hand the WHOLE branch tree to Nodea so it rebuilds the real node graph
+  // (every branch, with parent links + source ids), not pasted Markdown. We
+  // open the Nodea tab with `noopener`, so we can't postMessage it directly;
+  // instead we stash the payload in chrome.storage and the Nodea-side content
+  // script bridge (src/bridge.js) relays it into the logged-in app tab, which
+  // inserts it via Nodea's normal Supabase path. Stamping each node with its
+  // Claude message id is what later lets "Update Conversation" diff & re-sync.
+  Panel.prototype._openInNodea = async function () {
+    const self = this
+    const setBtn = function (html, disabled) {
+      if (self._openBtn) { self._openBtn.innerHTML = html; self._openBtn.disabled = !!disabled }
+    }
+    const nodes = (this.state.nodes || []).map(function (n) {
+      return {
+        id: n.id,
+        parent_id: n.parent_id || null,
+        role: n.role === 'assistant' ? 'assistant' : 'user',
+        content: n.content || '',
+        created_at: n.created_at || null,
+      }
+    })
+    if (!nodes.length) {
+      setBtn('Nothing to import', false)
+      setTimeout(function () { setBtn('Open in Nodea&nbsp;→', false) }, 1800)
+      return
+    }
+
+    setBtn('Preparing…', true)
+    let orgId = null
+    try { orgId = NX.adapter.getOrgId ? await NX.adapter.getOrgId() : null } catch (e) {}
+
+    const payload = {
+      v: 1,
+      source: 'claude',
+      sourceConversationId: this.state.convId || null,
+      sourceOrgId: orgId,
+      name: this.state.convName || 'Imported conversation',
+      currentLeaf: this.state.currentLeaf || null,
+      selectedLeaf: this.state.selectedNodeId || null,
+      exportedAt: Date.now(),
+      nodes: nodes,
+    }
+
+    let stored = false
+    try {
+      await new Promise(function (resolve, reject) {
+        chrome.storage.local.set({ nx_import: payload }, function () {
+          const err = chrome.runtime && chrome.runtime.lastError
+          if (err) reject(err); else resolve()
+        })
+      })
+      stored = true
+    } catch (e) {
+      // Extension storage unavailable — fall back to the old clipboard handoff
+      // so the button still does something useful.
+      try { navigator.clipboard.writeText(this._activeBranchMarkdown()) } catch (e2) {}
+    }
+
+    window.open(NODEA_APP_URL + (stored ? '?import=claude' : ''), '_blank', 'noopener')
+    setBtn(stored ? 'Sent to Nodea&nbsp;✓' : 'Opened Nodea', false)
+    setTimeout(function () { setBtn('Open in Nodea&nbsp;→', false) }, 2600)
+  }
+
+  // Markdown of the active branch — the pre-import fallback when extension
+  // storage isn't available.
+  Panel.prototype._activeBranchMarkdown = function () {
     const pairs = NX.buildPairs(this.state.nodes || [])
     const active = NX.getActivePairIds(pairs, this.state.selectedNodeId)
     const chain = (active.size ? pairs.filter((p) => active.has(p.id)) : pairs).sort(
@@ -393,8 +513,7 @@
       if (p.aiNode) md += `**Claude:** ${(p.aiNode.content || '').trim()}\n\n`
       md += '---\n\n'
     }
-    try { navigator.clipboard.writeText(md) } catch (e) {}
-    window.open('https://nodea.ai/app', '_blank', 'noopener')
+    return md
   }
 
   // ── Public: feed new tree data in ─────────────────────────────────────────
@@ -403,6 +522,7 @@
     this.state.nodes = data.nodes || this.state.nodes
     this.state.convId = data.convId || this.state.convId
     this.state.convName = data.convName || this.state.convName
+    if (data.currentLeaf) this.state.currentLeaf = data.currentLeaf
     if (data.currentLeaf && (convChanged || !this.state.selectedNodeId)) {
       this.state.selectedNodeId = data.currentLeaf
     }

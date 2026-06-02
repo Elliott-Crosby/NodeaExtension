@@ -20,7 +20,7 @@
     if (!convId) return // not on a conversation page
     if (!force && convId === lastConvId && document.hidden) return
     try {
-      const tree = await NX.adapter.fetchTree()
+      const tree = await fetchTreeWithRetry()
       if (!tree) return
       // Cheap change-detection so we don't re-render on every poll.
       const sig = convId + ':' + tree.nodes.length + ':' + (tree.currentLeaf || '')
@@ -34,9 +34,26 @@
         currentLeaf: tree.currentLeaf,
       })
     } catch (e) {
-      // Adapter shape mismatch or auth hiccup — surface once for debugging.
-      console.warn('[Nodea Tree] refresh failed:', e && e.message)
+      // Transient "Failed to fetch" happens during page load / SPA nav; the next
+      // poll recovers. Log at debug level so it doesn't surface as an extension
+      // error. A persistent failure here means the adapter shape needs a look.
+      console.debug('[Nodea Tree] tree fetch unavailable (will retry):', e && e.message)
     }
+  }
+
+  // Fetch the tree with a short backoff — rides out load-time network races
+  // ("Failed to fetch") instead of waiting a full poll cycle.
+  async function fetchTreeWithRetry() {
+    let lastErr
+    for (let i = 0; i < 3; i++) {
+      try {
+        return await NX.adapter.fetchTree()
+      } catch (e) {
+        lastErr = e
+        await new Promise((r) => setTimeout(r, 500 * (i + 1)))
+      }
+    }
+    throw lastErr
   }
 
   // Detect SPA URL changes (pushState / popstate).
@@ -63,10 +80,20 @@
   // Let the panel request a fresh tree fetch (e.g. after creating a branch).
   NX.requestRefresh = function () { refresh(true) }
 
-  // Toolbar action → toggle panel.
+  // Messages from the toolbar / service worker.
   try {
-    chrome.runtime.onMessage.addListener(function (msg) {
-      if (msg && msg.type === 'NX_TOGGLE') ensurePanel().toggle()
+    chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+      if (!msg) return
+      if (msg.type === 'NX_TOGGLE') { ensurePanel().toggle(); return }
+      // The service worker fell back to us: fetch a tree from inside the
+      // claude.ai page context (guaranteed-good auth) for "Update Conversation".
+      if (msg.type === 'NX_FETCH_TREE_IN_PAGE') {
+        NX.adapter
+          .fetchTreeById(msg.convId)
+          .then(function (tree) { sendResponse({ ok: true, tree: tree }) })
+          .catch(function (e) { sendResponse({ ok: false, error: (e && e.message) || 'fetch failed' }) })
+        return true // keep the channel open for the async response
+      }
     })
   } catch (e) {}
 
