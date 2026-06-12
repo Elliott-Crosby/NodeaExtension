@@ -649,6 +649,14 @@
       document.execCommand('selectAll', false, null)
       document.execCommand('delete', false, null)
     }
+    self._restoreComposer = function (text) {
+      const ci = document.querySelector('[data-testid="chat-input"]')
+      if (!ci) return
+      ci.focus()
+      document.execCommand('selectAll', false, null)
+      document.execCommand('delete', false, null)
+      document.execCommand('insertText', false, text)
+    }
     const trigger = function (e) {
       const text = readComposer().trim()
       if (!text) return false // empty: let Claude handle normally
@@ -689,10 +697,17 @@
           setTimeout(function () { self._disarmBranch() }, 4000)
         }
       } else {
-        // Re-arm so the user can retry from the same node.
+        // Fork didn't go through — put the prompt back in the composer so it's
+        // never silently lost, and re-arm so the user can retry from this node.
         self._armed = t
-        self._setArmStatus('Failed: ' + ((res && res.reason) || 'unknown') + ' — try again')
+        self._restoreComposer && self._restoreComposer(text)
+        self._setArmStatus('Failed: ' + ((res && res.reason) || 'unknown') + ' — your prompt was restored, try again')
       }
+    }).catch(function (err) {
+      // Unexpected throw mid-fork: same recovery — restore the text, re-arm.
+      self._armed = t
+      self._restoreComposer && self._restoreComposer(text)
+      self._setArmStatus('Failed: ' + ((err && err.message) || 'unexpected error') + ' — your prompt was restored, try again')
     })
   }
 
