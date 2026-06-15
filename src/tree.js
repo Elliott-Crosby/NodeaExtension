@@ -153,7 +153,8 @@
     const sByH = (ch - 28) / (bh + 32)
     const s = Math.max(C.MIN_READABLE_SCALE, Math.min(sByW, sByH, 1.15))
     this.scale = s
-    this.pan = { x: (cw - (bx1 - bx0) * s) / 2 - bx0 * s, y: 24 - by0 * s }
+    // Top inset clears the floating header pills so the first node isn't hidden.
+    this.pan = { x: (cw - (bx1 - bx0) * s) / 2 - bx0 * s, y: 56 - by0 * s }
     this.render()
   }
 

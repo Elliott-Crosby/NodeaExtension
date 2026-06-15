@@ -15,7 +15,7 @@
     GRID_PX: 24,
     MIN_READABLE_SCALE: 0.65,
     NODE_W: { detailed: 240, compact: 190, mini: 150 },
-    NODE_H: { detailed: 86, compact: 52, mini: 40 },
+    NODE_H: { detailed: 104, compact: 52, mini: 40 },
     NODE_H_FULL: { detailed: 220, compact: 140, mini: 90 },
     V_SPACING_FULL: 320,
   }

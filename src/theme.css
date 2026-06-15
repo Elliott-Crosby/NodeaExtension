@@ -72,42 +72,92 @@
   box-shadow: -2px 0 12px rgba(0, 0, 0, 0.08);
 }
 
-/* Header */
-.nx-header {
-  position: relative;
-  height: 52px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding: 0 10px 0 12px;
-  border-bottom: 1px solid var(--nx-border);
-  background: var(--nx-topbar-bg);
-  gap: 6px;
+/* Resize handle — wide, easy-to-grab grab zone straddling the panel's left
+   edge, lifted above the floating header pills so the whole edge is grabbable.
+   A thin line, centered on the seam, lights up on hover and while dragging. */
+.nx-resize-handle {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 12px;
+  height: 100%;
+  z-index: 40;
+  cursor: col-resize;
+  background: transparent;
+}
+.nx-resize-bar {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background-color: transparent;
+  transition: background-color 0.12s;
+}
+.nx-resize-handle:hover .nx-resize-bar,
+.nx-resize-handle.nx-dragging .nx-resize-bar {
+  background-color: var(--nx-accent);
 }
 
-/* App logo — top-left corner */
+/* Header — floating, backdrop-blurred pills hovering over the canvas
+   (mirrors the app's TreePanel TopBar). The container is click-through. */
+.nx-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 0 10px;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* Translucent pill — the actual interactive surface */
+.nx-pill {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  min-width: 0;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--nx-topbar-bg) 80%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(12px);
+  border: 1px solid var(--nx-border);
+  border-radius: 11px;
+  box-shadow: var(--nx-shadow-sm);
+}
+.nx-pill-left {
+  gap: 4px;
+  padding: 0 10px 0 4px;
+}
+.nx-pill-right {
+  gap: 6px;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+
+/* App logo */
 .nx-logo {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 6px;
   flex-shrink: 0;
   box-shadow: 0 1px 3px rgba(109, 40, 217, .3);
   display: block;
 }
 
-/* Nodea wordmark — centered in the header */
+/* Nodea wordmark — brand lockup inside the left pill */
 .nx-wordmark {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
   font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-weight: 600;
-  font-size: 22px;
+  font-size: 17px;
   line-height: 1;
   letter-spacing: -0.025em;
   color: var(--nx-accent);
-  pointer-events: none;
   white-space: nowrap;
 }
 
@@ -130,31 +180,81 @@
   color: var(--nx-text-primary);
 }
 
-.nx-toggle {
-  display: flex;
-  background: var(--nx-bg-muted);
-  border-radius: 8px;
-  padding: 2px;
-  gap: 2px;
+/* View-mode dropdown (Tree / Outline / Full) */
+.nx-viewmode {
+  position: relative;
   flex-shrink: 0;
 }
-.nx-toggle-btn {
-  width: 26px;
+.nx-viewmode-btn {
   height: 22px;
+  padding: 0 5px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
   color: var(--nx-text-muted);
-  transition: all 0.1s;
+  transition: background 0.1s, color 0.1s;
 }
-.nx-toggle-btn.nx-active {
+.nx-viewmode-btn:hover,
+.nx-viewmode.nx-open .nx-viewmode-btn {
+  color: var(--nx-text-primary);
+  background: var(--nx-bg-muted);
+}
+.nx-viewmode-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.nx-viewmode-caret {
+  display: inline-flex;
+  align-items: center;
+}
+.nx-viewmode-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 110px;
+  padding: 3px;
   background: var(--nx-modal-bg);
   border: 1px solid var(--nx-border);
+  border-radius: 9px;
+  box-shadow: var(--nx-shadow-sm, 0 4px 12px rgba(0, 0, 0, .12));
+}
+.nx-viewmode.nx-open .nx-viewmode-menu {
+  display: block;
+}
+.nx-viewmode-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--nx-text-secondary);
+  transition: background 0.1s;
+}
+.nx-viewmode-item:hover {
+  background: var(--nx-bg-muted);
+}
+.nx-viewmode-item.nx-active {
+  font-weight: 600;
   color: var(--nx-text-primary);
+}
+.nx-viewmode-check {
+  display: none;
+  align-items: center;
+}
+.nx-viewmode-item.nx-active .nx-viewmode-check {
+  display: inline-flex;
 }
 
 .nx-count {

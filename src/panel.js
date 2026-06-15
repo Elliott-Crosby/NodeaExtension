@@ -1,6 +1,6 @@
 // Nodea Tree for Claude — panel shell.
 // The right-side dock that mirrors Nodea's Conversation Tree panel: header with
-// collapse + view toggle + node count, the canvas (TreeView) or outline, a
+// collapse + view-mode dropdown + node count, the canvas (TreeView) or outline, a
 // color menu, and the "Open in Nodea" handoff footer.
 (function () {
   'use strict'
@@ -15,6 +15,19 @@
   // 'http://localhost:3000/app' (the bridge content script already matches it).
   const NODEA_APP_URL = 'https://nodea.ai/app'
 
+  // chrome.runtime.getURL throws "Extension context invalidated" when this
+  // content script is the stale copy of a since-reloaded extension. The guard
+  // for the function's existence isn't enough — the call itself throws — so wrap
+  // it. Returns '' on failure; callers already treat '' as "no logo".
+  function safeRuntimeURL(path) {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+        return chrome.runtime.getURL(path)
+      }
+    } catch (_) {}
+    return ''
+  }
+
   function icon(html, size) {
     size = size || 14
     return `<svg width="${size}" height="${size}" viewBox="0 0 14 14" fill="none">${html}</svg>`
@@ -24,8 +37,15 @@
     expand: icon('<path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 2L0 7l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"/>'),
     tree: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="0.5" width="4" height="3" rx="0.8" stroke="currentColor" stroke-width="1.1"/><rect x="0.5" y="8.5" width="3.5" height="3" rx="0.8" stroke="currentColor" stroke-width="1.1"/><rect x="8" y="8.5" width="3.5" height="3" rx="0.8" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="3.5" x2="6" y2="6.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6.5" x2="2.25" y2="8.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6.5" x2="9.75" y2="8.5" stroke="currentColor" stroke-width="1.1"/></svg>',
     outline: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="3" y1="6.5" x2="11" y2="6.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="5" y1="10" x2="11" y2="10" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>',
-    full: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="0.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><rect x="0.5" y="7.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><rect x="7.5" y="7.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="4.5" x2="6" y2="6" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6" x2="2.5" y2="7.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6" x2="9.5" y2="7.5" stroke="currentColor" stroke-width="1.1"/></svg>',
+    full: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="4" y="0.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><line x1="4.8" y1="2" x2="7.2" y2="2" stroke="currentColor" stroke-width="0.7" opacity="0.7"/><line x1="4.8" y1="3.2" x2="6.5" y2="3.2" stroke="currentColor" stroke-width="0.7" opacity="0.7"/><rect x="0.5" y="7.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><line x1="1.3" y1="9" x2="3.7" y2="9" stroke="currentColor" stroke-width="0.7" opacity="0.7"/><line x1="1.3" y1="10.2" x2="3" y2="10.2" stroke="currentColor" stroke-width="0.7" opacity="0.7"/><rect x="7.5" y="7.5" width="4" height="4" rx="0.8" stroke="currentColor" stroke-width="1.1"/><line x1="8.3" y1="9" x2="10.7" y2="9" stroke="currentColor" stroke-width="0.7" opacity="0.7"/><line x1="8.3" y1="10.2" x2="10" y2="10.2" stroke="currentColor" stroke-width="0.7" opacity="0.7"/><line x1="6" y1="4.5" x2="6" y2="6" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6" x2="2.5" y2="7.5" stroke="currentColor" stroke-width="1.1"/><line x1="6" y1="6" x2="9.5" y2="7.5" stroke="currentColor" stroke-width="1.1"/></svg>',
+    chevron: '<svg width="7" height="7" viewBox="0 0 8 8" fill="none"><path d="M1.5 3 4 5.5 6.5 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    check: '<svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M1.5 5.5 4 8l4.5-6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   }
+  const VIEW_MODES = [
+    { id: 'tree',    label: 'Tree' },
+    { id: 'outline', label: 'Outline' },
+    { id: 'full',    label: 'Full' },
+  ]
 
   function _loadPanelWidth() {
     try {
@@ -106,14 +126,22 @@
 
   Panel.prototype._buildResizeHandle = function () {
     const self = this
-    const h = el('div', {
-      position: 'absolute', left: '0', top: '0', width: '5px', height: '100%',
-      cursor: 'col-resize', zIndex: '20', background: 'transparent', transition: 'background 0.15s',
-    }, { title: 'Drag to resize' })
-    h.addEventListener('mouseenter', function () { h.style.background = 'var(--nx-accent)'; h.style.opacity = '0.35' })
-    h.addEventListener('mouseleave', function () { h.style.background = 'transparent'; h.style.opacity = '1' })
+    // Wide (14px) transparent grab zone straddling the panel's left edge, lifted
+    // above the floating header pills (z 30) and tree canvas so the whole edge is
+    // grabbable. A thin line, centered in the zone, lights up on hover/drag.
+    const h = el('div', {}, { class: 'nx-resize-handle', title: 'Drag to resize' })
+    // Thin indicator line, centered on the seam; lit via CSS :hover / .nx-dragging.
+    h.appendChild(el('div', {}, { class: 'nx-resize-bar' }))
+
     h.addEventListener('mousedown', function (e) {
       e.preventDefault()
+      h.classList.add('nx-dragging')
+      // Lock selection + cursor for the whole document while dragging so a fast
+      // drag that outruns the grab zone doesn't drop the grab or select text.
+      const prevUserSelect = document.body.style.userSelect
+      const prevCursor = document.body.style.cursor
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'col-resize'
       const ox = e.clientX, ow = self.width
       function move(ev) {
         const delta = ox - ev.clientX
@@ -124,6 +152,9 @@
       function up() {
         window.removeEventListener('mousemove', move)
         window.removeEventListener('mouseup', up)
+        h.classList.remove('nx-dragging')
+        document.body.style.userSelect = prevUserSelect
+        document.body.style.cursor = prevCursor
         try { localStorage.setItem('nx-panel-width', String(self.width)) } catch (_) {}
         self.tree && self.tree.render()
       }
@@ -135,43 +166,71 @@
 
   Panel.prototype._buildHeader = function () {
     const self = this
+    // Floating header: two translucent, backdrop-blurred pills hovering over the
+    // canvas (mirrors the app's TreePanel TopBar). The container itself is
+    // click-through; only the pills take pointer events.
     const header = el('div', {}, { class: 'nx-header' })
     this._header = header
 
-    // App logo — top-left corner.
-    const iconURL = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
-      ? chrome.runtime.getURL('icons/icon128.png') : ''
-    if (iconURL) header.appendChild(el('img', {}, { class: 'nx-logo', src: iconURL, alt: 'Nodea' }))
+    // ── Left pill: collapse + brand lockup ──────────────────────────────────
+    const leftPill = el('div', {}, { class: 'nx-pill nx-pill-left' })
 
     const collapseBtn = el('button', {}, { class: 'nx-icon-btn', title: 'Collapse tree', html: ICONS.collapse })
     collapseBtn.addEventListener('click', function () { self.setCollapsed(true) })
-    header.appendChild(collapseBtn)
+    leftPill.appendChild(collapseBtn)
 
-    // Nodea wordmark — centered in the header.
-    header.appendChild(el('span', {}, { class: 'nx-wordmark', text: 'Nodea' }))
+    const iconURL = safeRuntimeURL('icons/icon128.png')
+    if (iconURL) leftPill.appendChild(el('img', {}, { class: 'nx-logo', src: iconURL, alt: 'Nodea' }))
 
-    // Spacer pushes the view toggle + count to the right edge.
-    header.appendChild(el('div', { flex: '1' }))
+    leftPill.appendChild(el('span', {}, { class: 'nx-wordmark', text: 'Nodea' }))
+    header.appendChild(leftPill)
 
-    // view toggle
-    const toggle = el('div', {}, { class: 'nx-toggle' })
-    this._toggleBtns = {}
-    ;['tree', 'outline', 'full'].forEach(function (mode) {
-      const b = el('button', {}, {
-        class: 'nx-toggle-btn' + (mode === self.state.viewMode ? ' nx-active' : ''),
-        title: mode === 'tree' ? 'Tree view (summaries)' : mode === 'outline' ? 'Outline view' : 'Full view (raw text)',
-        html: ICONS[mode],
+    // ── Right pill: view-mode dropdown + node count ─────────────────────────
+    const rightPill = el('div', {}, { class: 'nx-pill nx-pill-right' })
+    this._rightPill = rightPill
+
+    // view-mode dropdown (Tree / Outline / Full)
+    const viewWrap = el('div', {}, { class: 'nx-viewmode' })
+    const trigger = el('button', {}, { class: 'nx-viewmode-btn', title: 'View mode' })
+    const triggerIcon = el('span', {}, { class: 'nx-viewmode-icon', html: ICONS[self.state.viewMode] })
+    trigger.appendChild(triggerIcon)
+    trigger.appendChild(el('span', {}, { class: 'nx-viewmode-caret', html: ICONS.chevron }))
+    viewWrap.appendChild(trigger)
+
+    const menu = el('div', {}, { class: 'nx-viewmode-menu' })
+    this._viewMenuItems = {}
+    VIEW_MODES.forEach(function (m) {
+      const item = el('button', {}, { class: 'nx-viewmode-item' + (m.id === self.state.viewMode ? ' nx-active' : '') })
+      item.appendChild(el('span', {}, { class: 'nx-viewmode-icon', html: ICONS[m.id] }))
+      item.appendChild(el('span', { flex: '1', textAlign: 'left' }, { text: m.label }))
+      item.appendChild(el('span', {}, { class: 'nx-viewmode-check', html: ICONS.check }))
+      item.addEventListener('click', function (e) {
+        e.stopPropagation()
+        self.setViewMode(m.id)
+        self._closeViewMenu()
       })
-      b.addEventListener('click', function () { self.setViewMode(mode) })
-      self._toggleBtns[mode] = b
-      toggle.appendChild(b)
+      self._viewMenuItems[m.id] = item
+      menu.appendChild(item)
     })
-    header.appendChild(toggle)
-    this._viewToggle = toggle
+    viewWrap.appendChild(menu)
+
+    trigger.addEventListener('click', function (e) {
+      e.stopPropagation()
+      viewWrap.classList.contains('nx-open') ? self._closeViewMenu() : self._openViewMenu()
+    })
+    // Dismiss on any outside click.
+    window.addEventListener('click', function () { self._closeViewMenu() })
+
+    rightPill.appendChild(viewWrap)
+    this._viewWrap = viewWrap
+    this._viewTriggerIcon = triggerIcon
+    // Kept for _applyAuthState's show/hide of the control while gated.
+    this._viewToggle = viewWrap
 
     this._countBadge = el('span', {}, { class: 'nx-count', text: '0' })
-    header.appendChild(this._countBadge)
+    rightPill.appendChild(this._countBadge)
 
+    header.appendChild(rightPill)
     this.dock.appendChild(header)
   }
 
@@ -200,9 +259,9 @@
 
   Panel.prototype._applyAuthState = function () {
     this._authed = !!(this._session && this._session.user)
-    // Header view-toggle + count are meaningless while gated (collapse stays).
-    if (this._viewToggle) this._viewToggle.style.display = this._authed ? '' : 'none'
-    if (this._countBadge) this._countBadge.style.display = this._authed ? '' : 'none'
+    // The right pill (view-mode + count) is meaningless while gated; the left
+    // pill (collapse + brand) stays so the panel can still be dismissed.
+    if (this._rightPill) this._rightPill.style.display = this._authed ? '' : 'none'
     if (!this._authed) this._disarmBranch()
     this._renderFooter()
     this._renderBody()
@@ -330,8 +389,7 @@
     const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-7-10-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="m2 2 20 20"/></svg>'
     const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'
     const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
-    const iconURL = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
-      ? chrome.runtime.getURL('icons/icon128.png') : ''
+    const iconURL = safeRuntimeURL('icons/icon128.png')
 
     const wrap = el('div', {}, { class: 'nx-login' })
 
@@ -543,7 +601,8 @@
       if (!childrenMap.has(k)) childrenMap.set(k, [])
       childrenMap.get(k).push(p)
     }
-    const wrap = el('div', { flex: '1', overflowY: 'auto' })
+    // paddingTop clears the floating header pills (outline starts at dock top).
+    const wrap = el('div', { flex: '1', overflowY: 'auto', paddingTop: '56px' })
     if (pairs.length === 0) {
       wrap.appendChild(el('div', { padding: '20px', color: 'var(--nx-text-muted)', fontSize: '12px', textAlign: 'center' }, { html: 'Nodes will appear<br>as you chat' }))
       return wrap
@@ -714,10 +773,18 @@
   // ── View switching ────────────────────────────────────────────────────────
   Panel.prototype.setViewMode = function (mode) {
     this.state.viewMode = mode
-    for (const m in this._toggleBtns) {
-      this._toggleBtns[m].classList.toggle('nx-active', m === mode)
+    if (this._viewTriggerIcon) this._viewTriggerIcon.innerHTML = ICONS[mode] || ''
+    for (const m in this._viewMenuItems) {
+      this._viewMenuItems[m].classList.toggle('nx-active', m === mode)
     }
     this._renderBody()
+  }
+
+  Panel.prototype._openViewMenu = function () {
+    if (this._viewWrap) this._viewWrap.classList.add('nx-open')
+  }
+  Panel.prototype._closeViewMenu = function () {
+    if (this._viewWrap) this._viewWrap.classList.remove('nx-open')
   }
 
   Panel.prototype._renderBody = function () {
@@ -783,8 +850,7 @@
       const strip = el('div', {}, { class: 'nx-strip' })
       // The purple Nodea app logo IS the expand control while collapsed — click
       // it to bring the diagram back out (same as the arrow).
-      const iconURL = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
-        ? chrome.runtime.getURL('icons/icon128.png') : ''
+      const iconURL = safeRuntimeURL('icons/icon128.png')
       if (iconURL) {
         const logo = el('img', {}, { class: 'nx-strip-logo', src: iconURL, alt: 'Expand Nodea tree', title: 'Expand tree' })
         logo.addEventListener('click', function () { self.setCollapsed(false) })

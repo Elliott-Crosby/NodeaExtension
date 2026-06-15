@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nodea Tree for Claude — Branch Map for claude.ai",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "For claude.ai only. Surfaces Claude's hidden branch tree as a visual conversation map. Open the full tree in Nodea.",
   "permissions": ["storage"],
   "host_permissions": [
