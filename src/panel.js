@@ -7,6 +7,21 @@
   const NX = (window.NX = window.NX || {})
   const { el } = NX
 
+  // Host-aware labels — the active adapter (claude/chatgpt/gemini) decides the
+  // brand name shown in the UI and the `source` tag stamped on imports. Falls
+  // back to Claude so an adapter that predates these fields still works.
+  function hostLabel() {
+    return (NX.adapter && NX.adapter.displayName) || 'Claude'
+  }
+  function hostSource() {
+    return (NX.adapter && NX.adapter.source) || 'claude'
+  }
+  // Branch-writing (jump-to-node, fork-from-node) needs a host write driver.
+  // Only Claude ships one today; without it the panel runs visualize-only.
+  function canWrite() {
+    return !!NX.write
+  }
+
   const DEFAULT_WIDTH = 340
   const MIN_WIDTH = 240
   const MAX_WIDTH = 720
@@ -417,7 +432,7 @@
     if (iconURL) row.appendChild(el('img', {}, { class: 'nx-login-ico', src: iconURL, alt: 'Nodea' }))
     row.appendChild(el('span', {}, { class: 'nx-login-name', text: 'Nodea Tree' }))
     brand.appendChild(row)
-    brand.appendChild(el('div', {}, { class: 'nx-login-tag', html: 'Branch maps <b>for Claude</b>' }))
+    brand.appendChild(el('div', {}, { class: 'nx-login-tag', html: 'Branch maps <b>for ' + hostLabel() + '</b>' }))
     card.appendChild(brand)
 
     // Tabs.
@@ -647,10 +662,12 @@
     if (this.state.viewMode === 'outline') this._renderBody()
     else this.tree && this.tree.render()
     this._selectedPair = pair
-    // Arm branching: the user's NEXT prompt in Claude's own box forks from here.
-    if (pair) this._armBranch(pair)
-    // Drive Claude's native UI to display this branch (the "go to that spot").
-    if (NX.write && pair) {
+    // Arm branching: the user's NEXT prompt in the host's own box forks from
+    // here. Only when the host has a write driver (Claude); otherwise selecting
+    // a node just highlights its path in the tree (visualize-only hosts).
+    if (pair && canWrite()) this._armBranch(pair)
+    // Drive the host's native UI to display this branch (the "go to that spot").
+    if (canWrite() && pair) {
       const pairs = NX.buildPairs(this.state.nodes || [])
       const target = pairs.find((p) => p.id === pair.id) || pair
       NX.write.navigateAndReveal(pairs, target).then(function (res) {
@@ -680,7 +697,7 @@
     this._armed = pair
     const title = NX.generateTitle(pair.userNode.content)
     this._armLabel.textContent = '↳ Branching from: ' + title
-    this._armStatus.textContent = 'Type your prompt in Claude’s box — it forks here.'
+    this._armStatus.textContent = 'Type your prompt in ' + hostLabel() + '’s box — it forks here.'
     this._armBar.style.display = 'flex'
   }
 
@@ -695,8 +712,10 @@
 
   // Intercept Claude's native send (Enter / Send button) while armed, and
   // reroute it to fork from the selected node instead of appending at the leaf.
+  // No-op on visualize-only hosts (no write driver → branching never arms).
   Panel.prototype._installSendInterceptor = function () {
     const self = this
+    if (!canWrite()) return
     const readComposer = function () {
       const ci = document.querySelector('[data-testid="chat-input"]')
       return ci ? (ci.textContent || '') : ''
@@ -901,7 +920,7 @@
 
     const payload = {
       v: 1,
-      source: 'claude',
+      source: hostSource(),
       sourceConversationId: this.state.convId || null,
       sourceOrgId: orgId,
       name: this.state.convName || 'Imported conversation',
@@ -926,7 +945,7 @@
       try { navigator.clipboard.writeText(this._activeBranchMarkdown()) } catch (e2) {}
     }
 
-    window.open(NODEA_APP_URL + (stored ? '?import=claude' : ''), '_blank', 'noopener')
+    window.open(NODEA_APP_URL + (stored ? '?import=' + hostSource() : ''), '_blank', 'noopener')
     setBtn(stored ? 'Sent to Nodea&nbsp;✓' : 'Opened Nodea', false)
     setTimeout(function () { setBtn('Open in Nodea&nbsp;→', false) }, 2600)
   }
@@ -939,10 +958,11 @@
     const chain = (active.size ? pairs.filter((p) => active.has(p.id)) : pairs).sort(
       (a, b) => +new Date(a.userNode.created_at) - +new Date(b.userNode.created_at)
     )
-    let md = `# ${this.state.convName}\n\n_Exported from Claude via Nodea Tree_\n\n`
+    const host = hostLabel()
+    let md = `# ${this.state.convName}\n\n_Exported from ${host} via Nodea Tree_\n\n`
     for (const p of chain) {
       md += `**You:** ${(p.userNode.content || '').trim()}\n\n`
-      if (p.aiNode) md += `**Claude:** ${(p.aiNode.content || '').trim()}\n\n`
+      if (p.aiNode) md += `**${host}:** ${(p.aiNode.content || '').trim()}\n\n`
       md += '---\n\n'
     }
     return md

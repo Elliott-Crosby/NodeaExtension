@@ -1,11 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Nodea Tree for Claude — Branch Map for claude.ai",
-  "version": "0.2.2",
-  "description": "For claude.ai only. Surfaces Claude's hidden branch tree as a visual conversation map. Open the full tree in Nodea.",
+  "name": "Nodea Tree — Branch Maps for Claude, ChatGPT & Gemini",
+  "version": "0.3.0",
+  "description": "Surfaces the hidden branch tree of your Claude, ChatGPT & Gemini chats as a visual map. Open the full tree in Nodea.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://gemini.google.com/*",
     "https://nodea.ai/*",
     "https://www.nodea.ai/*",
     "https://kzqhpygdhphjaiymqcmq.supabase.co/*"
@@ -29,7 +32,12 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/icon128.png"],
-      "matches": ["https://claude.ai/*"]
+      "matches": [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*"
+      ]
     }
   ],
   "content_scripts": [
@@ -40,6 +48,35 @@
         "src/auth.js",
         "src/adapters/claude.js",
         "src/adapters/claude-write.js",
+        "src/tree.js",
+        "src/panel.js",
+        "src/content.js"
+      ],
+      "css": ["src/theme.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "src/util.js",
+        "src/auth.js",
+        "src/adapters/chatgpt.js",
+        "src/tree.js",
+        "src/panel.js",
+        "src/content.js"
+      ],
+      "css": ["src/theme.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": [
+        "src/util.js",
+        "src/auth.js",
+        "src/adapters/gemini.js",
         "src/tree.js",
         "src/panel.js",
         "src/content.js"

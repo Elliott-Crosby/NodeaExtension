@@ -1,7 +1,14 @@
-# Renaming the extension for multi-model support (later)
+# Renaming the extension for multi-model support
 
-> Context: v0.2.0 ships as **"Nodea Tree for Claude"** (Claude-only). When ChatGPT /
-> Gemini / Grok adapters land, the name and listing should broaden. This note records how.
+> ✅ **DONE in v0.3.0 (2026-06-17).** This plan has been executed: the extension is now
+> **"Nodea Tree — Branch Maps for Claude, ChatGPT & Gemini"**, with `src/adapters/chatgpt.js`
+> and `src/adapters/gemini.js` added, hosts + permissions + privacy page updated, and the
+> Web Store listing copy rewritten in [`STORE-SUBMISSION.md`](./STORE-SUBMISSION.md). The
+> notes below are kept as the rationale + the template for the **next** host (Grok, etc.).
+
+> Original context: v0.2.0 shipped as **"Nodea Tree for Claude"** (Claude-only). When
+> ChatGPT / Gemini / Grok adapters land, the name and listing should broaden. This note
+> records how.
 
 ## Can the name be changed after launch?
 
