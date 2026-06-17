@@ -14,10 +14,17 @@
     V_SPACING: 180,
     GRID_PX: 24,
     MIN_READABLE_SCALE: 0.65,
-    NODE_W: { detailed: 240, compact: 190, mini: 150 },
-    NODE_H: { detailed: 104, compact: 52, mini: 40 },
-    NODE_H_FULL: { detailed: 220, compact: 140, mini: 90 },
+    // Cards are fixed-size objects in canvas space and zoom uniformly with
+    // everything else — so their size and spacing *relative to each other* never
+    // change. Only their content adapts: full card (title + summary) when close,
+    // title-only once you're far enough out.
+    NODE_W: 240,
+    NODE_H: 104,
+    NODE_H_FULL: 220,
     V_SPACING_FULL: 320,
+    // At or below this zoom the cards are "far away": drop the body, show only
+    // the (wrapping) title. Same box, just less inside it.
+    TITLE_ONLY_SCALE: 0.55,
   }
 
   // ── Colour palette (node colors menu) ─────────────────────────────────────
@@ -77,12 +84,6 @@
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .replace(/^\s*[-*+>]\s+/gm, '')
       .trim()
-  }
-
-  NX.getZoomMode = function (scale) {
-    if (scale >= 0.85) return 'detailed'
-    if (scale >= 0.55) return 'compact'
-    return 'mini'
   }
 
   // ── Pair building (verbatim port of buildPairs) ───────────────────────────

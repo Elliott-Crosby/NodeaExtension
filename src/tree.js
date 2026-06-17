@@ -140,7 +140,7 @@
     const cw = this.container.clientWidth
     const ch = this.container.clientHeight
     if (!cw || !ch) return
-    const nodeHMax = (viewMode === 'full' ? C.NODE_H_FULL : C.NODE_H).detailed
+    const nodeHMax = viewMode === 'full' ? C.NODE_H_FULL : C.NODE_H
     const ps = Array.from(positions.values())
     const hPad = 40
     const bx0 = Math.min(...ps.map((p) => p.x))
@@ -158,26 +158,52 @@
     this.render()
   }
 
-  // ── Build one node card's inner content per zoom mode ──────────────────────
-  function nodeInner(pair, zoomMode, viewMode) {
-    const title = pair.aiNode
-      ? NX.generateTitle(pair.userNode.content)
-      : NX.generateTitle(pair.userNode.content)
+  // ── Build one node card's inner content ────────────────────────────────────
+  // The card is one fixed size at every zoom; only its content adapts. Close in
+  // (`titleOnly` false) it shows the full card; far out it drops the body and
+  // shows just the wrapping title, vertically centred in the same box.
+  function nodeInner(pair, titleOnly, viewMode) {
+    const title = NX.generateTitle(pair.userNode.content)
     const summary = pair.aiNode ? NX.generateSummary(pair.aiNode.content) : ''
     const userFull = (pair.userNode.content || '').trim()
     const aiFull = pair.aiNode ? NX.stripMarkdownPlain(pair.aiNode.content) : ''
 
+    // Title-only — far enough out that the body is dropped. Same box size as the
+    // full card; just the title, vertically centred.
+    if (titleOnly) {
+      const wrap = el('div', {
+        padding: '0 14px',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+      })
+      wrap.appendChild(
+        el('div', {
+          flex: '1',
+          minWidth: '0',
+          fontSize: '13px',
+          fontWeight: '600',
+          color: 'var(--nx-text-primary)',
+          lineHeight: '1.3',
+          overflow: 'hidden',
+          whiteSpace: 'normal',
+          wordBreak: 'break-word',
+        }, { text: (viewMode === 'full' ? (userFull || title) : title) })
+      )
+      return wrap
+    }
+
+    // Full card — full mode: raw user prompt (bold, top) + raw AI reply (bottom)
     if (viewMode === 'full') {
       const wrap = el('div', {
-        padding: zoomMode === 'detailed' ? '10px 11px' : '8px 9px',
+        padding: '10px 11px',
         height: '100%',
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
       })
-      const clampU = zoomMode === 'mini' ? 1 : zoomMode === 'compact' ? 3 : 5
-      const clampA = zoomMode === 'mini' ? 1 : zoomMode === 'compact' ? 3 : 6
       wrap.appendChild(
         el('div', {
           flex: '1 1 0',
@@ -189,7 +215,7 @@
           overflow: 'hidden',
           display: '-webkit-box',
           WebkitBoxOrient: 'vertical',
-          WebkitLineClamp: String(clampU),
+          WebkitLineClamp: '5',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
         }, { text: userFull || '(empty)' })
@@ -206,7 +232,7 @@
             overflow: 'hidden',
             display: '-webkit-box',
             WebkitBoxOrient: 'vertical',
-            WebkitLineClamp: String(clampA),
+            WebkitLineClamp: '6',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }, { text: aiFull })
@@ -215,93 +241,42 @@
       return wrap
     }
 
-    // tree (summary) view
-    if (zoomMode === 'detailed') {
-      const wrap = el('div', {
-        padding: '9px 10px 8px 10px',
-        height: '100%',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '3px',
-      })
-      wrap.appendChild(
-        el('div', {
-          fontSize: '11.5px',
-          fontWeight: '600',
-          color: 'var(--nx-text-primary)',
-          lineHeight: '1.3',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }, { text: title })
-      )
-      if (summary) {
-        wrap.appendChild(
-          el('div', {
-            fontSize: '10.5px',
-            color: 'var(--nx-text-secondary)',
-            lineHeight: '1.4',
-            overflow: 'hidden',
-            maxHeight: '32px',
-          }, { text: summary })
-        )
-      }
-      return wrap
-    }
-    if (zoomMode === 'compact') {
-      const wrap = el('div', {
-        padding: '7px 9px',
-        height: '100%',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        gap: '2px',
-      })
-      wrap.appendChild(
-        el('div', {
-          fontSize: '10.5px',
-          fontWeight: '600',
-          color: 'var(--nx-text-primary)',
-          lineHeight: '1.3',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }, { text: title })
-      )
-      if (summary) {
-        wrap.appendChild(
-          el('div', {
-            fontSize: '9.5px',
-            color: 'var(--nx-text-muted)',
-            lineHeight: '1.3',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }, { text: summary })
-        )
-      }
-      return wrap
-    }
-    // mini
+    // Full card — summary (tree) mode: generated title + summary
     const wrap = el('div', {
-      padding: '0 8px',
+      padding: '9px 10px 8px 10px',
       height: '100%',
+      boxSizing: 'border-box',
       display: 'flex',
-      alignItems: 'center',
+      flexDirection: 'column',
+      gap: '3px',
     })
     wrap.appendChild(
       el('div', {
-        fontSize: '9.5px',
+        fontSize: '11.5px',
         fontWeight: '600',
         color: 'var(--nx-text-primary)',
+        lineHeight: '1.3',
         overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        flex: '1',
+        display: '-webkit-box',
+        WebkitBoxOrient: 'vertical',
+        WebkitLineClamp: '2',
+        wordBreak: 'break-word',
       }, { text: title })
     )
+    if (summary) {
+      wrap.appendChild(
+        el('div', {
+          fontSize: '10.5px',
+          color: 'var(--nx-text-secondary)',
+          lineHeight: '1.45',
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: '3',
+          wordBreak: 'break-word',
+        }, { text: summary })
+      )
+    }
     return wrap
   }
 
@@ -309,10 +284,12 @@
   TreeView.prototype.render = function () {
     const self = this
     const { pairs, positions, active, viewMode } = this._derive()
-    const zoomMode = NX.getZoomMode(this.scale)
-    const nodeW = C.NODE_W[zoomMode]
-    const nodeH = (viewMode === 'full' ? C.NODE_H_FULL : C.NODE_H)[zoomMode]
-    const nodeHMax = (viewMode === 'full' ? C.NODE_H_FULL : C.NODE_H).detailed
+    // Cards are one fixed size at every zoom; only their content changes. Far
+    // enough out (titleOnly) they show just the title, but the box never shrinks.
+    const titleOnly = this.scale < C.TITLE_ONLY_SCALE
+    const nodeW = C.NODE_W
+    const nodeH = viewMode === 'full' ? C.NODE_H_FULL : C.NODE_H
+    const nodeHMax = nodeH
     const colors = this.state.colors || {}
 
     // Canvas size
@@ -399,7 +376,7 @@
         transition: 'border-color 0.12s, box-shadow 0.12s',
       })
       card.setAttribute('data-node', 'true')
-      card.appendChild(nodeInner(pair, zoomMode, viewMode))
+      card.appendChild(nodeInner(pair, titleOnly, viewMode))
 
       // hover affordance
       card.addEventListener('mouseenter', function () {
