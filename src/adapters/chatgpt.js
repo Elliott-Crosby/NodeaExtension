@@ -143,11 +143,35 @@
     return res.json()
   }
 
+  // Best-effort "jump to this node" for a visualize-only host: find the
+  // message in the rendered thread by role + text and scroll/flash it. Only
+  // messages on the branch ChatGPT is currently displaying exist in the DOM,
+  // so an off-path node is simply a no-op (returns false).
+  function revealNode(node) {
+    if (!node) return false
+    const want = (node.content || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+    if (!want) return false
+    const els = document.querySelectorAll('[data-message-author-role="' + node.role + '"]')
+    for (const el of els) {
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (t.indexOf(want) !== -1) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const prev = el.style.boxShadow
+        el.style.transition = 'box-shadow .2s'
+        el.style.boxShadow = '0 0 0 3px #7c3aed'
+        setTimeout(() => { el.style.boxShadow = prev }, 1300)
+        return true
+      }
+    }
+    return false
+  }
+
   NX.adapter = {
     host: 'chatgpt',
     source: 'chatgpt', // tags the "Open in Nodea" payload (see AI_SOURCES)
     displayName: 'ChatGPT',
     conversationIdFromUrl,
+    revealNode,
     _normalize: normalize, // test seam
 
     async fetchTree() {

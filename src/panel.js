@@ -124,9 +124,31 @@
     this._themeObserver = new MutationObserver(function () { self._applyTheme() })
     this._themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] })
 
-    document.body.appendChild(this.root)
+    // Mount on <html>, NOT <body>: _pushContent turns body into the containing
+    // block for fixed-position descendants (see there); the dock must stay
+    // viewport-anchored, so it can't live inside that subtree.
+    document.documentElement.appendChild(this.root)
+    this._visible = true
     this._pushContent(this.width)
     this._initAuth()
+  }
+
+  // Hide the panel (and give the reclaimed space back) on pages that aren't a
+  // conversation — leaving a stale tree pushing content around on /new or
+  // settings pages read as "the extension overlaps things".
+  Panel.prototype.setVisible = function (visible) {
+    visible = !!visible
+    if (this._visible === visible) return
+    this._visible = visible
+    if (!visible) {
+      this._disarmBranch()
+      this.root.style.display = 'none'
+      this._pushContent(0)
+    } else {
+      this.root.style.display = ''
+      this._pushContent(this.collapsed ? 48 : this.width)
+      this.tree && this.tree.render()
+    }
   }
 
   Panel.prototype._applyTheme = function () {
@@ -662,18 +684,33 @@
     if (this.state.viewMode === 'outline') this._renderBody()
     else this.tree && this.tree.render()
     this._selectedPair = pair
-    // Arm branching: the user's NEXT prompt in the host's own box forks from
-    // here. Only when the host has a write driver (Claude); otherwise selecting
-    // a node just highlights its path in the tree (visualize-only hosts).
-    if (pair && canWrite()) this._armBranch(pair)
-    // Drive the host's native UI to display this branch (the "go to that spot").
-    if (canWrite() && pair) {
+    if (pair && canWrite()) {
       const pairs = NX.buildPairs(this.state.nodes || [])
       const target = pairs.find((p) => p.id === pair.id) || pair
+      // Arm branching only when forking from here differs from a normal send.
+      // The tip of the path the host is already displaying is the most common
+      // click, and forking from it IS a plain send — intercepting the composer
+      // for it adds failure modes without changing the outcome.
+      if (this._isActiveLeafPair(pairs, target)) this._disarmBranch()
+      else this._armBranch(target)
+      // Drive the host's native UI to display this branch (the "go to that spot").
       NX.write.navigateAndReveal(pairs, target).then(function (res) {
         if (res && !res.ok) self._setArmStatus('Couldn’t jump to this branch (' + res.reason + ')')
       })
+    } else if (pair && NX.adapter && NX.adapter.revealNode) {
+      // Visualize-only hosts (ChatGPT / Gemini): best-effort scroll to the
+      // message in the host's own thread.
+      NX.adapter.revealNode(pair.aiNode || pair.userNode)
     }
+  }
+
+  // True when `pair` is the tip of the branch the host is currently displaying
+  // (on the active path, with no children) — the place a normal send lands.
+  Panel.prototype._isActiveLeafPair = function (pairs, pair) {
+    if (!this.state.currentLeaf) return false
+    const active = NX.getActivePairIds(pairs, this.state.currentLeaf)
+    if (!active.has(pair.id)) return false
+    return !pairs.some(function (p) { return p.parentPairId === pair.id })
   }
 
   // ── Arm banner: shows which node the next prompt will branch from ──────────
@@ -716,19 +753,27 @@
   Panel.prototype._installSendInterceptor = function () {
     const self = this
     if (!canWrite()) return
+    // Primary selector plus a fallback for testid churn — Claude's composer has
+    // been a ProseMirror contenteditable throughout.
+    const composerEl = function () {
+      return (
+        document.querySelector('[data-testid="chat-input"]') ||
+        document.querySelector('div.ProseMirror[contenteditable="true"]')
+      )
+    }
     const readComposer = function () {
-      const ci = document.querySelector('[data-testid="chat-input"]')
+      const ci = composerEl()
       return ci ? (ci.textContent || '') : ''
     }
     const clearComposer = function () {
-      const ci = document.querySelector('[data-testid="chat-input"]')
+      const ci = composerEl()
       if (!ci) return
       ci.focus()
       document.execCommand('selectAll', false, null)
       document.execCommand('delete', false, null)
     }
     self._restoreComposer = function (text) {
-      const ci = document.querySelector('[data-testid="chat-input"]')
+      const ci = composerEl()
       if (!ci) return
       ci.focus()
       document.execCommand('selectAll', false, null)
@@ -747,13 +792,14 @@
     document.addEventListener('keydown', function (e) {
       if (!self._armed) return
       if (e.key === 'Escape') { self._disarmBranch(); return }
-      const ci = e.target.closest && e.target.closest('[data-testid="chat-input"]')
+      const ci = e.target.closest &&
+        e.target.closest('[data-testid="chat-input"], div.ProseMirror[contenteditable="true"]')
       if (ci && e.key === 'Enter' && !e.shiftKey) trigger(e)
     }, true)
     document.addEventListener('click', function (e) {
       if (!self._armed) return
-      const btn = e.target.closest && e.target.closest('button[aria-label="Send message"]')
-      if (btn) trigger(e)
+      const btn = e.target.closest && e.target.closest('button')
+      if (btn && /^send\b/i.test(btn.getAttribute('aria-label') || '')) trigger(e)
     }, true)
   }
 
@@ -775,18 +821,24 @@
           setTimeout(function () { self._disarmBranch() }, 4000)
         }
       } else {
-        // Fork didn't go through — put the prompt back in the composer so it's
-        // never silently lost, and re-arm so the user can retry from this node.
-        self._armed = t
-        self._restoreComposer && self._restoreComposer(text)
-        self._setArmStatus('Failed: ' + ((res && res.reason) || 'unknown') + ' — your prompt was restored, try again')
+        self._failFork(text, (res && res.reason) || 'unknown')
       }
     }).catch(function (err) {
-      // Unexpected throw mid-fork: same recovery — restore the text, re-arm.
-      self._armed = t
-      self._restoreComposer && self._restoreComposer(text)
-      self._setArmStatus('Failed: ' + ((err && err.message) || 'unexpected error') + ' — your prompt was restored, try again')
+      self._failFork(text, (err && err.message) || 'unexpected error')
     })
+  }
+
+  // Fork didn't go through. Restore the prompt so it's never silently lost, but
+  // DROP the intercept — re-arming here made every subsequent Enter re-run the
+  // same broken fork, which read as "the extension won't let me send anything".
+  // The banner stays visible (armed=null already stops interception) with the
+  // reason and how to retry.
+  Panel.prototype._failFork = function (text, reason) {
+    this._armed = null
+    this._restoreComposer && this._restoreComposer(text)
+    if (this._armLabel) this._armLabel.textContent = 'Branch failed'
+    this._setArmStatus(reason + ' — prompt restored. Enter sends normally; click a node to retry.')
+    if (this._armBar) this._armBar.style.display = 'flex'
   }
 
   // ── View switching ────────────────────────────────────────────────────────
@@ -844,8 +896,20 @@
       this._pushStyle.id = 'nx-push-style'
       document.head.appendChild(this._pushStyle)
     }
+    // SPA head churn can detach the style tag; re-append or the push silently
+    // stops and the panel covers content.
+    if (!this._pushStyle.isConnected) document.head.appendChild(this._pushStyle)
     const w = Math.max(0, width | 0)
-    this._pushStyle.textContent = 'body { margin-right: ' + w + 'px !important; }'
+    if (!w) { this._pushStyle.textContent = ''; return }
+    // The margin reflows normal content, but position:fixed elements (toasts,
+    // dialogs, right-anchored controls) stay viewport-relative and end up UNDER
+    // the panel. The transform makes <body> the containing block for its fixed
+    // descendants, so right-anchored fixed elements shift left with the margin
+    // too. Safe on these hosts because none of them scroll the body itself
+    // (inner columns scroll), and our own dock lives on <html>, outside the
+    // transformed subtree.
+    this._pushStyle.textContent =
+      'body { margin-right: ' + w + 'px !important; transform: translateX(0) !important; }'
   }
 
   Panel.prototype.setCollapsed = function (collapsed) {
@@ -979,6 +1043,11 @@
       this.state.selectedNodeId = data.currentLeaf
     }
     if (convChanged) {
+      // A pair armed in the PREVIOUS conversation would hijack sends here and
+      // fork against a tree that no longer exists — every send would fail.
+      this._disarmBranch()
+      if (!data.currentLeaf) this.state.selectedNodeId = null
+      this.state.currentLeaf = data.currentLeaf || null
       this._loadColors()
       this.tree && (this.tree._initialFitDone = false)
     }

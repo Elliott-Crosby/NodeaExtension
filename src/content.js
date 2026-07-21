@@ -17,16 +17,26 @@
 
   async function refresh(force) {
     const convId = NX.adapter.conversationIdFromUrl()
-    if (!convId) return // not on a conversation page
+    if (!convId) {
+      // Not on a conversation page — hide the dock and give the space back
+      // instead of leaving a stale tree pushing the host's layout around.
+      if (panel) panel.setVisible(false)
+      return
+    }
     if (!force && convId === lastConvId && document.hidden) return
     try {
       const tree = await fetchTreeWithRetry()
       if (!tree) return
-      // Cheap change-detection so we don't re-render on every poll.
-      const sig = convId + ':' + tree.nodes.length + ':' + (tree.currentLeaf || '')
+      // Cheap change-detection so we don't re-render on every poll. Includes
+      // total content length so a streaming reply (same node count, same leaf,
+      // growing text) still re-renders instead of freezing on its first chunk.
+      let chars = 0
+      for (const n of tree.nodes) chars += (n.content || '').length
+      const sig = convId + ':' + tree.nodes.length + ':' + (tree.currentLeaf || '') + ':' + chars
       if (!force && sig === lastSig) return
       lastSig = sig
       lastConvId = convId
+      ensurePanel().setVisible(true)
       ensurePanel().update({
         nodes: tree.nodes,
         convId: tree.id,

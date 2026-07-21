@@ -143,6 +143,7 @@ function testChatGPT() {
   eq('source tag', adapter.source, 'chatgpt')
   eq('display name', adapter.displayName, 'ChatGPT')
   eq('conversationIdFromUrl', adapter.conversationIdFromUrl(), '12345678-1234-4123-8123-123456789012')
+  check('revealNode exposed (jump-to-node on visualize-only host)', typeof adapter.revealNode === 'function')
 
   // ── normalize ──
   const tree = adapter._normalize(CHATGPT_FIXTURE)
@@ -211,6 +212,7 @@ function testGemini() {
   eq('source tag', adapter.source, 'gemini')
   eq('display name', adapter.displayName, 'Gemini')
   eq('conversationIdFromUrl (handles /u/0/app/)', adapter.conversationIdFromUrl(), 'c_abc123')
+  check('revealNode exposed (jump-to-node on visualize-only host)', typeof adapter.revealNode === 'function')
 
   const tree = adapter._parse(ctx.document, 'c_abc123')
   eq('node count (2 turns → 4 nodes)', tree.nodes.length, 4)
@@ -235,6 +237,47 @@ function testGemini() {
   const streaming = adapter._parse(fakeDoc([fakeContainer('Mid-stream prompt', null)]), 'c_xyz')
   eq('streaming turn keeps the user prompt', streaming.nodes.length, 1)
   eq('streaming leaf is the prompt', streaming.currentLeaf, 'gem-c_xyz-0-u')
+}
+
+// ───────────────────────────── Claude write driver ─────────────────────────
+// Pure parts of the branch-navigation logic: fuzzy text matching (DOM copies
+// truncate / carry UI text) and deterministic sibling ordering.
+function testClaudeWrite() {
+  console.log('\nClaude write driver')
+  const ctx = makeContext({ pathname: '/chat/12345678-1234-4123-8123-123456789012' })
+  load(ctx, 'src/util.js')
+  load(ctx, 'src/adapters/claude-write.js')
+  const W = ctx.window.NX.write
+  check('write driver loads', !!W)
+
+  const tm = W.textMatches
+  check('exact match', tm('Hello world', 'Hello world'))
+  check('whitespace-normalized match', tm('  Hello\n  world ', 'Hello world'))
+  check('DOM truncation of a long prompt still matches (prefix)', tm(
+    'Please refactor the billing module so that invoices are grouped by customer and',
+    'Please refactor the billing module so that invoices are grouped by customer and sorted by due date descending'
+  ))
+  check('DOM extra trailing UI text still matches (containment)', tm(
+    'Please refactor the billing module so invoices group by customer Copy Edit Retry',
+    'Please refactor the billing module so invoices group by customer'
+  ))
+  check('truncation ellipsis is stripped before prefix compare', tm(
+    'Please refactor the billing module so that invoices…',
+    'Please refactor the billing module so that invoices are grouped by customer'
+  ))
+  check('short prompts must match exactly (no false positive)', !tm('hi there everyone today', 'hi'))
+  check('different prompts do not match', !tm('Tell me a joke', 'Tell me a fact'))
+  check('long siblings sharing a prefix but differing later do not cross-match', !tm(
+    'Write a summary of chapter one focusing on the protagonist and the themes of loss Copy Edit',
+    'Write a summary of chapter one focusing on the protagonist and the themes of hope'
+  ))
+
+  // siblingIndex: creation order with id tiebreak on identical timestamps.
+  const mk = (id, ts) => ({ id, parentPairId: 'p', userNode: { id, created_at: ts } })
+  const sibs = [mk('b', '2026-01-01T00:00:00Z'), mk('a', '2026-01-01T00:00:00Z'), mk('c', '2026-01-02T00:00:00Z')]
+  eq('tied timestamps break by id (a first)', W.siblingIndex(sibs, sibs[1]), 1)
+  eq('tied timestamps break by id (b second)', W.siblingIndex(sibs, sibs[0]), 2)
+  eq('later timestamp sorts last', W.siblingIndex(sibs, sibs[2]), 3)
 }
 
 // ───────────────────────────── manifest ────────────────────────────────────
@@ -264,6 +307,7 @@ const run = async () => {
   console.log('Nodea Tree — adapter test harness')
   await testChatGPT()
   testGemini()
+  testClaudeWrite()
   testManifest()
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES') + `: ${pass} passed, ${fail} failed`)
   process.exit(fail === 0 ? 0 : 1)

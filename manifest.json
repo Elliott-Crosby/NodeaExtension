@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nodea Tree — Branch Maps for Claude, ChatGPT & Gemini",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Surfaces the hidden branch tree of your Claude, ChatGPT & Gemini chats as a visual map. Open the full tree in Nodea.",
   "permissions": ["storage"],
   "host_permissions": [
