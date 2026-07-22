@@ -237,6 +237,34 @@ function fakeDoc(containers) {
   }
 }
 
+// Minimal element stub with just enough DOM API for gemini's visibleText to run
+// its `.cdk-visually-hidden` strip: textContent joins children, cloneNode deep-
+// copies, querySelectorAll finds by class, remove() detaches from the clone.
+function elStub(children) {
+  return {
+    get textContent() { return children.map((c) => c.text).join(' ') },
+    cloneNode() { return elStub(children.map((c) => ({ ...c }))) },
+    querySelectorAll(sel) {
+      const cls = sel.replace(/^\./, '')
+      return children
+        .filter((c) => c.cls === cls)
+        .map((c) => ({ remove() { const i = children.indexOf(c); if (i >= 0) children.splice(i, 1) } }))
+    },
+  }
+}
+// A container whose user-query carries Gemini's sr-only "You said" label ahead of
+// the visible prompt line (the real DOM shape that leaked into node titles).
+function fakeContainerWithSrLabel(visiblePrompt, modelText) {
+  const map = {
+    'user-query .query-text': elStub([
+      { cls: 'cdk-visually-hidden', text: 'You said' },
+      { cls: 'query-text-line', text: visiblePrompt },
+    ]),
+    'model-response message-content .markdown': modelText != null ? { textContent: modelText } : null,
+  }
+  return { querySelector: (sel) => map[sel] || null }
+}
+
 function testGemini() {
   console.log('\nGemini adapter')
   const containers = [
@@ -278,6 +306,14 @@ function testGemini() {
   const streaming = adapter._parse(fakeDoc([fakeContainer('Mid-stream prompt', null)]), 'c_xyz')
   eq('streaming turn keeps the user prompt', streaming.nodes.length, 1)
   eq('streaming leaf is the prompt', streaming.currentLeaf, 'gem-c_xyz-0-u')
+
+  // Screen-reader label strip: "You said" must not prefix the captured prompt.
+  const srTree = adapter._parse(fakeDoc([fakeContainerWithSrLabel('What is 2+2?', '4')]), 'c_sr')
+  const srUser = srTree.nodes.find((n) => n.role === 'user')
+  eq('sr-only "You said" label stripped from prompt', srUser.content, 'What is 2+2?')
+  eq('pushContentCSS exposed (Gemini reflow override)', typeof adapter.pushContentCSS, 'function')
+  check('pushContentCSS(0) is empty (panel hidden reclaims viewport)', adapter.pushContentCSS(0) === '')
+  check('pushContentCSS(340) narrows the shell', /calc\(100vw - 340px\)/.test(adapter.pushContentCSS(340)))
 }
 
 // ───────────────────────────── Claude write driver ─────────────────────────

@@ -901,13 +901,21 @@
     if (!this._pushStyle.isConnected) document.head.appendChild(this._pushStyle)
     const w = Math.max(0, width | 0)
     if (!w) { this._pushStyle.textContent = ''; return }
-    // The margin reflows normal content, but position:fixed elements (toasts,
-    // dialogs, right-anchored controls) stay viewport-relative and end up UNDER
-    // the panel. The transform makes <body> the containing block for its fixed
-    // descendants, so right-anchored fixed elements shift left with the margin
-    // too. Safe on these hosts because none of them scroll the body itself
-    // (inner columns scroll), and our own dock lives on <html>, outside the
-    // transformed subtree.
+    // Host-specific override: some hosts pin their whole app shell to the full
+    // viewport width and clip overflow, so a right margin on <body> shifts
+    // nothing and the chat slides UNDER the panel (Gemini). Those adapters
+    // supply their own reflow CSS; everyone else uses the default below.
+    if (NX.adapter && typeof NX.adapter.pushContentCSS === 'function') {
+      this._pushStyle.textContent = NX.adapter.pushContentCSS(w) || ''
+      return
+    }
+    // Default: the margin reflows normal content, but position:fixed elements
+    // (toasts, dialogs, right-anchored controls) stay viewport-relative and end
+    // up UNDER the panel. The transform makes <body> the containing block for
+    // its fixed descendants, so right-anchored fixed elements shift left with
+    // the margin too. Safe on these hosts because none of them scroll the body
+    // itself (inner columns scroll), and our own dock lives on <html>, outside
+    // the transformed subtree.
     this._pushStyle.textContent =
       'body { margin-right: ' + w + 'px !important; transform: translateX(0) !important; }'
   }

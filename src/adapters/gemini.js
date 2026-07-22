@@ -36,12 +36,25 @@
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim()
 
+  // Visible text of an element, minus Gemini's screen-reader-only labels. Gemini
+  // injects `.cdk-visually-hidden` spans ("You said", "Gemini said") that
+  // textContent would otherwise pull in — so a prompt reads "You said <prompt>"
+  // and every node title is prefixed. Strip them on a clone before reading.
+  function visibleText(el) {
+    if (typeof el.cloneNode === 'function' && typeof el.querySelectorAll === 'function') {
+      const clone = el.cloneNode(true)
+      clone.querySelectorAll('.cdk-visually-hidden').forEach((n) => n.remove())
+      return norm(clone.textContent)
+    }
+    return norm(el.textContent)
+  }
+
   // First non-empty text from a list of selectors, scoped to `root`.
   function pickText(root, selectors) {
     for (const sel of selectors) {
       const el = root.querySelector(sel)
       if (el) {
-        const t = norm(el.textContent)
+        const t = visibleText(el)
         if (t) return t
       }
     }
@@ -135,12 +148,31 @@
     return false
   }
 
+  // Gemini pins its whole app shell to the full viewport width — <html>, <body>,
+  // <chat-app-orchestrator>, <chat-app> and <main.chat-app> are all 100vw — and
+  // clips horizontal overflow on <html>. The panel's default push (a right
+  // margin on <body>) therefore shifts nothing: body's box moves but its width
+  // stays 100vw, so the chat keeps its full width and slides UNDER the dock.
+  // Fix: shrink the shell by narrowing <html> itself. Everything inside is
+  // width:100%, so it reflows in one step. Empty at width 0 (panel hidden) so
+  // Gemini reclaims the full viewport. Verified live on gemini.google.com
+  // 2026-07-22: main's right edge tracks 100vw − width exactly.
+  function pushContentCSS(width) {
+    const w = Math.max(0, width | 0)
+    if (!w) return ''
+    return (
+      'html{width:calc(100vw - ' + w + 'px)!important;min-width:0!important;overflow-x:hidden!important}' +
+      'body{width:100%!important;min-width:0!important;margin-right:0!important}'
+    )
+  }
+
   NX.adapter = {
     host: 'gemini',
     source: 'gemini', // tags the "Open in Nodea" payload (see AI_SOURCES)
     displayName: 'Gemini',
     conversationIdFromUrl,
     revealNode,
+    pushContentCSS,
     _parse: parse, // test seam
 
     async fetchTree() {
