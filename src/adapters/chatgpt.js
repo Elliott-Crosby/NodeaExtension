@@ -15,8 +15,8 @@
 // `mapping` is a node graph: every entry is { id, message, parent, children }.
 // We keep the user/assistant messages, drop system/tool/hidden ones, and
 // re-link each kept node to its nearest kept ancestor so the alternating
-// user→assistant tree survives the dropped nodes. Read-only (Version A): no
-// branch-writing yet, so this adapter does not define NX.write.
+// user→assistant tree survives the dropped nodes. This adapter is READ-only; the
+// jump-to-node / fork write half lives in adapters/chatgpt-write.js (NX.write).
 (function () {
   'use strict'
   const NX = (window.NX = window.NX || {})
@@ -58,6 +58,37 @@
     return !!(message && message.metadata && message.metadata.is_visually_hidden_from_conversation)
   }
 
+  // ChatGPT threads carry non-conversational user/assistant turns that still hold
+  // text, and they must be dropped for two reasons: they render as garbage nodes,
+  // and — worse — they sit BETWEEN a real user turn and its real answer, so
+  // leaving them in re-parents the answer onto plumbing and breaks the
+  // user→assistant pairing (the answer is lost, the thread looks empty/wrong).
+  // The offenders, all observed live on chatgpt.com (2026-07-22):
+  //   • content_type 'code'                → tool calls: a web `search("…")`
+  //     query, or a `{"skipped_mainline":true}` control message
+  //   • recipient !== 'all'                → message addressed to a tool
+  //     (web / python / a tool namespace like "t2uay3k.sj1i4kz"), not the user
+  //   • channel 'analysis' / 'commentary'  → reasoning-model scratch turns
+  //   • *_editable_context / thoughts / …  → memory writes & internal context
+  const NON_CONVO_CONTENT = new Set([
+    'code',
+    'user_editable_context',
+    'model_editable_context',
+    'thoughts',
+    'reasoning_recap',
+    'tether_quote',
+    'tether_browsing_display',
+    'system_error',
+  ])
+  function isConversational(message) {
+    if (!roleOf(message) || isHidden(message)) return false
+    const c = (message && message.content) || {}
+    if (NON_CONVO_CONTENT.has(c.content_type)) return false
+    if (message.recipient && message.recipient !== 'all') return false
+    if (message.channel === 'analysis' || message.channel === 'commentary') return false
+    return true
+  }
+
   // Normalize a ChatGPT conversation payload → flat node list for the renderer.
   // Exposed as _normalize for the offline test harness.
   function normalize(convo) {
@@ -69,7 +100,7 @@
     for (const id in mapping) {
       const entry = mapping[id]
       const msg = entry && entry.message
-      if (!roleOf(msg) || isHidden(msg)) continue
+      if (!isConversational(msg)) continue
       if (!extractText(msg).trim()) continue
       kept.add(id)
     }

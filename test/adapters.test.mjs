@@ -171,6 +171,47 @@ function testChatGPT() {
   eq('pair a2 branches off a1', pById.a2.parentPairId, 'a1')
   eq('pair a2b branches off a1 (sibling of a2)', pById.a2b.parentPairId, 'a1')
 
+  // ── tool / reasoning turns that CARRY TEXT must not become nodes, and must
+  //    not sit between a user turn and its real answer (regression: chatgpt.com
+  //    2026-07-22 — web-search `search("…")`, `{"skipped_mainline":true}`
+  //    control messages, and reasoning-model 'analysis' channels) ──
+  const TOOL_FIXTURE = {
+    conversation_id: 'c2',
+    title: 'Tools',
+    current_node: 'ans',
+    mapping: {
+      root: { id: 'root', message: null, parent: null, children: ['q'] },
+      q: {
+        id: 'q', parent: 'root', children: ['search'],
+        message: { id: 'q', author: { role: 'user' }, content: { content_type: 'text', parts: ['find X'] }, create_time: 1 },
+      },
+      search: {
+        id: 'search', parent: 'q', children: ['ctrl'],
+        message: { id: 'search', author: { role: 'assistant' }, recipient: 'web', content: { content_type: 'code', text: 'search("X")' }, create_time: 2 },
+      },
+      ctrl: {
+        id: 'ctrl', parent: 'search', children: ['think'],
+        message: { id: 'ctrl', author: { role: 'assistant' }, recipient: 't2uay3k.sj1i4kz', content: { content_type: 'code', text: '{"skipped_mainline":true}' }, create_time: 3 },
+      },
+      think: {
+        id: 'think', parent: 'ctrl', children: ['ans'],
+        message: { id: 'think', author: { role: 'assistant' }, channel: 'analysis', content: { content_type: 'text', parts: ['(thinking about X)'] }, create_time: 4 },
+      },
+      ans: {
+        id: 'ans', parent: 'think', children: [],
+        message: { id: 'ans', author: { role: 'assistant' }, channel: 'final', content: { content_type: 'text', parts: ['Here is X.'] }, create_time: 5 },
+      },
+    },
+  }
+  const t2 = adapter._normalize(TOOL_FIXTURE)
+  const t2ById = Object.fromEntries(t2.nodes.map((n) => [n.id, n]))
+  eq('tool/reasoning turns dropped (only q + ans kept)', t2.nodes.length, 2)
+  check('web-search code turn dropped', !t2ById.search)
+  check('skipped_mainline control turn dropped', !t2ById.ctrl)
+  check('analysis-channel reasoning turn dropped', !t2ById.think)
+  eq('real answer re-links across tool turns to the user', t2ById.ans.parent_id, 'q')
+  eq('one clean user→answer pair', NX.buildPairs(t2.nodes).length, 1)
+
   // ── fetchTree plumbing: token → authorized conversation GET ──
   return adapter.fetchTree().then((t) => {
     eq('fetchTree node count', t.nodes.length, 6)
