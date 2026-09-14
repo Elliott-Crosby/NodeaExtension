@@ -15,15 +15,14 @@ conversation into the real app.
 | Host | Read (visualize) | Branch-write | How the tree is read |
 |---|:--:|:--:|---|
 | **Claude** (`claude.ai`) | ✅ | ✅ | Claude's conversation API (full tree, with your session) |
-| **ChatGPT** (`chatgpt.com`, `chat.openai.com`) | ✅ | — | `/backend-api/conversation/<id>` mapping tree (bearer token from `/api/auth/session`) |
-| **Gemini** (`gemini.google.com`) | ✅ | — | DOM of the rendered conversation (Gemini exposes no API); linear thread |
+| **ChatGPT** (`chatgpt.com`, `chat.openai.com`) | ✅ | ✅ | `/backend-api/conversation/<id>` mapping tree (bearer token from `/api/auth/session`) |
+| **Gemini** (`gemini.google.com`) | ✅ | — | Visible DOM path plus locally preserved viewed drafts (Gemini exposes no branch API) |
 
 Each host is one **adapter** under `src/adapters/`; everything else is host-agnostic. The
 adapter turns whatever the host exposes into the renderer's flat node shape
 (`{ id, parent_id, role, content, created_at }`). Branch-**writing** (jump-to-node,
-fork-from-node) needs a `*-write.js` driver — only Claude ships one today, so ChatGPT and
-Gemini run **visualize-only** (the panel cleanly hides the branching controls when no write
-driver is present).
+fork-from-node) needs a `*-write.js` driver. Claude and ChatGPT ship one; Gemini runs
+**visualize-only** because Gemini does not expose a true branch API or branchable tree.
 
 ## What it does (v1)
 
@@ -140,8 +139,9 @@ recon checklist in `STORE-SUBMISSION.md` §7.
 
 ## Not yet (deliberately)
 
-- **ChatGPT / Gemini branch-writing.** Both ship read-only (visualize + Open in Nodea).
-  In-place branching needs a `chatgpt-write.js` / `gemini-write.js` driver like Claude's.
+- **Gemini branch-writing.** Gemini ships visualize + Open in Nodea only. In-place
+  branching is not technically available because Gemini exposes neither a true branch
+  API nor a branchable conversation tree for the extension to drive.
 - **Unseen Gemini branches.** Gemini exposes only the path/draft currently rendered in
   the DOM. The adapter preserves and merges every path the user views, including across
   reloads, but it cannot discover alternatives the user has never opened in Gemini.

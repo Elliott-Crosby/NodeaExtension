@@ -143,7 +143,7 @@ function testChatGPT() {
   eq('source tag', adapter.source, 'chatgpt')
   eq('display name', adapter.displayName, 'ChatGPT')
   eq('conversationIdFromUrl', adapter.conversationIdFromUrl(), '12345678-1234-4123-8123-123456789012')
-  check('revealNode exposed (jump-to-node on visualize-only host)', typeof adapter.revealNode === 'function')
+  check('revealNode exposed for ChatGPT branch navigation', typeof adapter.revealNode === 'function')
   eq('pushContentCSS exposed', typeof adapter.pushContentCSS, 'function')
   check('pushContentCSS narrows ChatGPT stage', /\.stage-layout\{width:100%/.test(adapter.pushContentCSS(340)))
   check('pushContentCSS contains fixed controls in safe body width', /calc\(100vw - 340px\)/.test(adapter.pushContentCSS(340)))
