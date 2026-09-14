@@ -917,7 +917,9 @@
     // itself (inner columns scroll), and our own dock lives on <html>, outside
     // the transformed subtree.
     this._pushStyle.textContent =
-      'body { margin-right: ' + w + 'px !important; transform: translateX(0) !important; }'
+      'html { overflow-x: hidden !important; }' +
+      'body { width: calc(100vw - ' + w + 'px) !important; min-width: 0 !important;' +
+      ' margin: 0 ' + w + 'px 0 0 !important; transform: translateX(0) !important; }'
   }
 
   Panel.prototype.setCollapsed = function (collapsed) {

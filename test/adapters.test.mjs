@@ -42,7 +42,7 @@ function makeContext({ pathname = '/', fetchFn, documentObj } = {}) {
   ctx.fetch = fetchFn || (async () => ({ ok: false, status: 0, json: async () => ({}) }))
   ctx.console = console
   ctx.setTimeout = setTimeout
-  ctx.chrome = { runtime: {}, storage: { local: { get() {}, set() {} } } }
+  ctx.chrome = { runtime: {}, storage: { local: { async get() { return {} }, async set() {} } } }
   vm.createContext(ctx)
   return ctx
 }
@@ -144,6 +144,9 @@ function testChatGPT() {
   eq('display name', adapter.displayName, 'ChatGPT')
   eq('conversationIdFromUrl', adapter.conversationIdFromUrl(), '12345678-1234-4123-8123-123456789012')
   check('revealNode exposed (jump-to-node on visualize-only host)', typeof adapter.revealNode === 'function')
+  eq('pushContentCSS exposed', typeof adapter.pushContentCSS, 'function')
+  check('pushContentCSS narrows ChatGPT stage', /\.stage-layout\{width:100%/.test(adapter.pushContentCSS(340)))
+  check('pushContentCSS contains fixed controls in safe body width', /calc\(100vw - 340px\)/.test(adapter.pushContentCSS(340)))
 
   // ── normalize ──
   const tree = adapter._normalize(CHATGPT_FIXTURE)
@@ -265,7 +268,7 @@ function fakeContainerWithSrLabel(visiblePrompt, modelText) {
   return { querySelector: (sel) => map[sel] || null }
 }
 
-function testGemini() {
+async function testGemini() {
   console.log('\nGemini adapter')
   const containers = [
     fakeContainer('What is 2+2?', '4'),
@@ -286,26 +289,26 @@ function testGemini() {
   const tree = adapter._parse(ctx.document, 'c_abc123')
   eq('node count (2 turns → 4 nodes)', tree.nodes.length, 4)
   const ids = tree.nodes.map((n) => n.id)
-  eq('deterministic user id', ids[0], 'gem-c_abc123-0-u')
-  eq('deterministic assistant id', ids[1], 'gem-c_abc123-0-a')
+  check('deterministic content-derived user id', /^gem-c_abc123-[a-z0-9]+$/.test(ids[0]), ids[0])
+  check('deterministic content-derived assistant id', /^gem-c_abc123-[a-z0-9]+$/.test(ids[1]), ids[1])
   const byId = Object.fromEntries(tree.nodes.map((n) => [n.id, n]))
-  eq('first user is root', byId['gem-c_abc123-0-u'].parent_id, null)
-  eq('first answer parents to first prompt', byId['gem-c_abc123-0-a'].parent_id, 'gem-c_abc123-0-u')
-  eq('second prompt chains off first answer', byId['gem-c_abc123-1-u'].parent_id, 'gem-c_abc123-0-a')
-  eq('content captured', byId['gem-c_abc123-0-a'].content, '4')
-  eq('currentLeaf is last answer', tree.currentLeaf, 'gem-c_abc123-1-a')
-  check('deterministic timestamps (stable across reads)', adapter._parse(ctx.document, 'c_abc123').nodes[0].created_at === byId['gem-c_abc123-0-u'].created_at)
+  eq('first user is root', byId[ids[0]].parent_id, null)
+  eq('first answer parents to first prompt', byId[ids[1]].parent_id, ids[0])
+  eq('second prompt chains off first answer', byId[ids[2]].parent_id, ids[1])
+  eq('content captured', byId[ids[1]].content, '4')
+  eq('currentLeaf is last answer', tree.currentLeaf, ids[3])
+  check('deterministic timestamps (stable across reads)', adapter._parse(ctx.document, 'c_abc123').nodes[0].created_at === byId[ids[0]].created_at)
 
   const pairs = NX.buildPairs(tree.nodes)
   eq('pair count', pairs.length, 2)
   const pairById = Object.fromEntries(pairs.map((p) => [p.id, p]))
-  eq('second pair chains off first', pairById['gem-c_abc123-1-a'].parentPairId, 'gem-c_abc123-0-a')
+  eq('second pair chains off first', pairById[ids[3]].parentPairId, ids[1])
 
   // Fallback path: a streaming answer (model text not yet present) keeps the
   // prompt as the active leaf rather than dropping the turn.
   const streaming = adapter._parse(fakeDoc([fakeContainer('Mid-stream prompt', null)]), 'c_xyz')
   eq('streaming turn keeps the user prompt', streaming.nodes.length, 1)
-  eq('streaming leaf is the prompt', streaming.currentLeaf, 'gem-c_xyz-0-u')
+  eq('streaming leaf is the prompt', streaming.currentLeaf, streaming.nodes[0].id)
 
   // Screen-reader label strip: "You said" must not prefix the captured prompt.
   const srTree = adapter._parse(fakeDoc([fakeContainerWithSrLabel('What is 2+2?', '4')]), 'c_sr')
@@ -314,6 +317,35 @@ function testGemini() {
   eq('pushContentCSS exposed (Gemini reflow override)', typeof adapter.pushContentCSS, 'function')
   check('pushContentCSS(0) is empty (panel hidden reclaims viewport)', adapter.pushContentCSS(0) === '')
   check('pushContentCSS(340) narrows the shell', /calc\(100vw - 340px\)/.test(adapter.pushContentCSS(340)))
+
+  // Persistence regression: Gemini only renders one selected path at a time.
+  // Merging a newly observed alternate draft must preserve the earlier draft
+  // and make both assistant nodes siblings after a simulated page reload.
+  const firstPath = adapter._parse(fakeDoc([fakeContainer('Pick one', 'Draft A')]), 'c_branch')
+  const secondPath = adapter._parse(fakeDoc([fakeContainer('Pick one', 'Draft B')]), 'c_branch')
+  const merged = adapter._mergeTrees(firstPath, secondPath)
+  eq('cached + live paths merge without losing nodes', merged.nodes.length, 3)
+  const mergedPairs = NX.buildPairs(merged.nodes)
+  eq('alternate Gemini drafts survive as sibling branches', mergedPairs.length, 2)
+  eq('both draft branches share the same user parent', mergedPairs[0].userNode.id, mergedPairs[1].userNode.id)
+
+  const storageData = {}
+  const storageLocal = {
+    async get(key) { return key in storageData ? { [key]: storageData[key] } : {} },
+    async set(item) { Object.assign(storageData, item) },
+  }
+  const firstLoad = makeContext({ pathname: '/app/c_reload', documentObj: fakeDoc([fakeContainer('Pick one', 'Draft A')]) })
+  firstLoad.chrome.storage.local = storageLocal
+  load(firstLoad, 'src/util.js')
+  load(firstLoad, 'src/adapters/gemini.js')
+  await firstLoad.NX.adapter.fetchTree()
+  const reload = makeContext({ pathname: '/app/c_reload', documentObj: fakeDoc([fakeContainer('Pick one', 'Draft B')]) })
+  reload.chrome.storage.local = storageLocal
+  load(reload, 'src/util.js')
+  load(reload, 'src/adapters/gemini.js')
+  const afterReload = await reload.NX.adapter.fetchTree()
+  eq('chrome.storage cache restores branches after reload', afterReload.nodes.length, 3)
+  eq('restored branches remain two renderer pairs', reload.NX.buildPairs(afterReload.nodes).length, 2)
 }
 
 // ───────────────────────────── Claude write driver ─────────────────────────
@@ -383,7 +415,7 @@ function testManifest() {
 const run = async () => {
   console.log('Nodea Tree — adapter test harness')
   await testChatGPT()
-  testGemini()
+  await testGemini()
   testClaudeWrite()
   testManifest()
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES') + `: ${pass} passed, ${fail} failed`)

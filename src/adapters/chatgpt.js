@@ -197,12 +197,28 @@
     return false
   }
 
+  // ChatGPT's current app shell uses `w-screen`, so a margin on <body> alone
+  // does not narrow it: the composer/header can remain full-viewport and slide
+  // beneath the dock. Give body an explicit carved-out width and make the
+  // stage consume that width. The transform also contains fixed descendants
+  // (dialogs, toasts, composer controls) inside the safe area.
+  function pushContentCSS(width) {
+    const w = Math.max(0, width | 0)
+    if (!w) return ''
+    return (
+      'html{overflow-x:hidden!important}' +
+      'body{width:calc(100vw - ' + w + 'px)!important;min-width:0!important;margin:0 ' + w + 'px 0 0!important;transform:translateX(0)!important}' +
+      '.stage-layout{width:100%!important;max-width:100%!important;min-width:0!important}'
+    )
+  }
+
   NX.adapter = {
     host: 'chatgpt',
     source: 'chatgpt', // tags the "Open in Nodea" payload (see AI_SOURCES)
     displayName: 'ChatGPT',
     conversationIdFromUrl,
     revealNode,
+    pushContentCSS,
     _normalize: normalize, // test seam
 
     async fetchTree() {

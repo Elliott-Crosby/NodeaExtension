@@ -24,6 +24,7 @@
   // Deterministic synthetic timestamps (Gemini gives us none). A fixed epoch +
   // turn offset preserves order without ever depending on the wall clock.
   const BASE_TIME = Date.parse('2020-01-01T00:00:00Z')
+  const CACHE_PREFIX = 'nx-gemini-tree:'
 
   // Conversation id from gemini.google.com[/u/N]/app/<id>. A brand-new chat has
   // no id until the first exchange; fall back to a sentinel so a visible thread
@@ -35,6 +36,25 @@
   }
 
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim()
+
+  // Gemini does not expose message ids. Derive compact deterministic ids from
+  // the path + content instead of the turn index so alternate prompts/drafts
+  // become real siblings and can be merged with paths seen in earlier page
+  // loads. FNV-1a is sufficient here: these are local UI identities, not
+  // security tokens.
+  function hashText(value) {
+    let h = 0x811c9dc5
+    const s = String(value || '')
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i)
+      h = Math.imul(h, 0x01000193)
+    }
+    return (h >>> 0).toString(36)
+  }
+
+  function nodeId(convId, parentId, role, content) {
+    return 'gem-' + convId + '-' + hashText((parentId || 'root') + '|' + role + '|' + norm(content))
+  }
 
   // Visible text of an element, minus Gemini's screen-reader-only labels. Gemini
   // injects `.cdk-visually-hidden` spans ("You said", "Gemini said") that
@@ -94,7 +114,7 @@
       if (!userText && !modelText) return
 
       const t = turn++
-      const userId = 'gem-' + id + '-' + t + '-u'
+      const userId = nodeId(id, prevAssistantId, 'user', userText)
       if (userText) {
         nodes.push({
           id: userId,
@@ -105,7 +125,7 @@
         })
       }
       if (modelText) {
-        const aiId = 'gem-' + id + '-' + t + '-a'
+        const aiId = nodeId(id, userText ? userId : prevAssistantId, 'assistant', modelText)
         nodes.push({
           id: aiId,
           parent_id: userText ? userId : prevAssistantId,
@@ -124,6 +144,48 @@
       (nodes.length && NX.generateTitle ? NX.generateTitle(nodes[0].content) : '') ||
       'Gemini conversation'
     return { id, name, nodes, currentLeaf: prevAssistantId }
+  }
+
+  // Gemini only renders the currently selected path. Keep a local union of the
+  // paths the user has actually viewed so branches do not vanish on reload or
+  // when Gemini switches which draft/path is present in the DOM.
+  function mergeTrees(cached, live) {
+    if (!cached || cached.id !== live.id) return live
+    const byId = new Map()
+    ;(cached.nodes || []).forEach((n) => byId.set(n.id, n))
+    ;(live.nodes || []).forEach((n) => byId.set(n.id, n))
+    return {
+      id: live.id,
+      name: live.name || cached.name,
+      nodes: Array.from(byId.values()),
+      currentLeaf: live.currentLeaf || cached.currentLeaf || null,
+    }
+  }
+
+  async function loadCachedTree(convId) {
+    try {
+      if (!chrome || !chrome.storage || !chrome.storage.local) return null
+      const key = CACHE_PREFIX + convId
+      const result = await chrome.storage.local.get(key)
+      return result && result[key] ? result[key] : null
+    } catch (_) { return null }
+  }
+
+  async function saveCachedTree(tree) {
+    try {
+      if (!tree || !tree.id || !tree.nodes.length || !chrome || !chrome.storage || !chrome.storage.local) return
+      const item = {}
+      item[CACHE_PREFIX + tree.id] = tree
+      await chrome.storage.local.set(item)
+    } catch (_) {}
+  }
+
+  async function persistentTree(convId) {
+    const live = parse(document, convId)
+    const cached = await loadCachedTree(convId)
+    const merged = mergeTrees(cached, live)
+    if (live.nodes.length) await saveCachedTree(merged)
+    return merged
   }
 
   // Best-effort "jump to this node": find the rendered turn by role + text and
@@ -162,7 +224,7 @@
     if (!w) return ''
     return (
       'html{width:calc(100vw - ' + w + 'px)!important;min-width:0!important;overflow-x:hidden!important}' +
-      'body{width:100%!important;min-width:0!important;margin-right:0!important}'
+      'body{width:100%!important;min-width:0!important;margin-right:0!important;transform:translateX(0)!important}'
     )
   }
 
@@ -174,10 +236,12 @@
     revealNode,
     pushContentCSS,
     _parse: parse, // test seam
+    _mergeTrees: mergeTrees,
 
     async fetchTree() {
-      // The DOM IS the source of truth — no network call.
-      return parse(document, conversationIdFromUrl())
+      // The live DOM supplies the current path; local storage preserves other
+      // paths/drafts observed previously for the same conversation.
+      return persistentTree(conversationIdFromUrl())
     },
 
     async fetchTreeById(convId) {
@@ -185,7 +249,7 @@
       // is readable. Returns it when the id matches, else null.
       const cur = conversationIdFromUrl()
       if (convId && cur && convId !== cur) return null
-      return parse(document, cur)
+      return persistentTree(cur)
     },
   }
 })()
