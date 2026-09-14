@@ -25,6 +25,7 @@
   // turn offset preserves order without ever depending on the wall clock.
   const BASE_TIME = Date.parse('2020-01-01T00:00:00Z')
   const CACHE_PREFIX = 'nx-gemini-tree:'
+  const DIAGNOSTICS_KEY = 'nx-gemini-diagnostics'
 
   // Conversation id from gemini.google.com[/u/N]/app/<id>. A brand-new chat has
   // no id until the first exchange; fall back to a sentinel so a visible thread
@@ -180,12 +181,50 @@
     } catch (_) {}
   }
 
+  // Keep only structural health signals. Never store message text, URLs, or
+  // account identifiers in diagnostics.
+  async function recordDiagnostics(patch) {
+    try {
+      if (!chrome || !chrome.storage || !chrome.storage.local) return
+      const result = await chrome.storage.local.get(DIAGNOSTICS_KEY)
+      const previous = (result && result[DIAGNOSTICS_KEY]) || {}
+      const item = {}
+      item[DIAGNOSTICS_KEY] = Object.assign({}, previous, patch)
+      await chrome.storage.local.set(item)
+    } catch (_) {}
+  }
+
+  async function clearCachedTree(convId) {
+    try {
+      if (!convId || !chrome || !chrome.storage || !chrome.storage.local) return false
+      await chrome.storage.local.remove(CACHE_PREFIX + convId)
+      await recordDiagnostics({ lastCacheClearAt: new Date().toISOString() })
+      return true
+    } catch (_) { return false }
+  }
+
   async function persistentTree(convId) {
-    const live = parse(document, convId)
-    const cached = await loadCachedTree(convId)
-    const merged = mergeTrees(cached, live)
-    if (live.nodes.length) await saveCachedTree(merged)
-    return merged
+    try {
+      const live = parse(document, convId)
+      const cached = await loadCachedTree(convId)
+      const merged = mergeTrees(cached, live)
+      if (live.nodes.length) await saveCachedTree(merged)
+      await recordDiagnostics({
+        lastSuccessAt: new Date().toISOString(),
+        lastResult: live.nodes.length ? 'ok' : 'empty_dom',
+        liveNodeCount: live.nodes.length,
+        cachedNodeCount: cached && cached.nodes ? cached.nodes.length : 0,
+        mergedNodeCount: merged.nodes.length,
+      })
+      return merged
+    } catch (error) {
+      await recordDiagnostics({
+        lastFailureAt: new Date().toISOString(),
+        lastResult: 'adapter_failure',
+        errorKind: error && error.name ? String(error.name).slice(0, 80) : 'Error',
+      })
+      throw error
+    }
   }
 
   // Best-effort "jump to this node": find the rendered turn by role + text and
@@ -235,6 +274,7 @@
     conversationIdFromUrl,
     revealNode,
     pushContentCSS,
+    clearCachedTree,
     _parse: parse, // test seam
     _mergeTrees: mergeTrees,
 

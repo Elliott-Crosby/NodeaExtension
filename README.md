@@ -32,6 +32,9 @@ fork-from-node) needs a `*-write.js` driver. Claude and ChatGPT ship one; Gemini
 - Tree / Outline / Full view toggle, node count, collapse, drag-to-resize — mirroring
   the live `TreePanel`.
 - Per-node colors (saved per conversation via `chrome.storage`).
+- Gemini shows an explicit capability notice, offers a per-conversation “Clear saved
+  paths” control, and records local structural diagnostics (counts/status only—never
+  conversation text) to help identify DOM or cache regressions.
 - **Open in Nodea** — hands the **whole branch tree** to Nodea, which rebuilds it as a
   real conversation (every branch, parent links + per-node Claude message ids preserved)
   so a later "Update Conversation" can diff & re-sync. Transport is the Nodea-side bridge

@@ -273,6 +273,32 @@
   border-top: 1px solid var(--nx-border);
   background: var(--nx-topbar-bg);
 }
+.nx-gemini-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 9px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--nx-accent) 20%, var(--nx-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--nx-accent) 7%, var(--nx-modal-bg));
+  color: var(--nx-text-secondary);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.nx-gemini-note span { flex: 1; }
+.nx-gemini-clear {
+  flex-shrink: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--nx-border);
+  border-radius: 6px;
+  background: var(--nx-modal-bg);
+  color: var(--nx-text-primary);
+  font-size: 10px;
+  cursor: pointer;
+}
+.nx-gemini-clear:hover { border-color: var(--nx-accent); color: var(--nx-accent); }
+.nx-gemini-clear:disabled { cursor: default; opacity: .65; }
 .nx-open-btn {
   flex: 0 0 auto;
   margin-left: auto;

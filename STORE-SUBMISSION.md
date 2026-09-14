@@ -77,7 +77,7 @@ expect extra scrutiny and keep the data form truthful (see §3).
 > "Claude" is a trademark of Anthropic, PBC; "ChatGPT" of OpenAI; "Gemini" of Google LLC.
 
 **Permission justifications (required per permission):**
-- `storage` → "Saves per-conversation display preferences, preserves Gemini paths the user has viewed so branches survive reloads, and stages the one-shot 'Open in Nodea' handoff payload. All are stored locally."
+- `storage` → "Saves per-conversation display preferences, preserves Gemini paths the user has viewed so branches survive reloads, records local structural health counts without message text, and stages the one-shot 'Open in Nodea' handoff payload. All are stored locally."
 - Host `https://claude.ai/*` → "Read the user's Claude conversation tree (with their existing session) to render it, and inject the tree-panel UI."
 - Host `https://chatgpt.com/*`, `https://chat.openai.com/*` → "Read the user's ChatGPT conversation tree via ChatGPT's own API, render it, and drive user-initiated native branch navigation/edit actions."
 - Host `https://gemini.google.com/*` → "Read the user's Gemini conversation from the page (Gemini exposes no conversation API) to render its tree, and inject the tree-panel UI."

@@ -321,6 +321,27 @@
 
     const row = el('div', {}, { class: 'nx-foot-row' })
 
+    if (hostSource() === 'gemini') {
+      const note = el('div', {}, { class: 'nx-gemini-note' })
+      note.appendChild(el('span', {}, {
+        text: 'Viewed paths are saved locally. Gemini does not expose unopened alternatives or true branching.',
+      }))
+      const clear = el('button', {}, { class: 'nx-gemini-clear', type: 'button', text: 'Clear saved paths' })
+      clear.addEventListener('click', async function () {
+        clear.disabled = true
+        const ok = NX.adapter && NX.adapter.clearCachedTree
+          ? await NX.adapter.clearCachedTree(self.state.convId)
+          : false
+        clear.textContent = ok ? 'Cleared' : 'Could not clear'
+        setTimeout(function () {
+          clear.disabled = false
+          clear.textContent = 'Clear saved paths'
+        }, 1800)
+      })
+      note.appendChild(clear)
+      this._footer.appendChild(note)
+    }
+
     const acct = el('div', {}, { class: 'nx-acct' })
 
     // Popup (hidden until the avatar is clicked) — anchored above the avatar.

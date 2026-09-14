@@ -333,6 +333,7 @@ async function testGemini() {
   const storageLocal = {
     async get(key) { return key in storageData ? { [key]: storageData[key] } : {} },
     async set(item) { Object.assign(storageData, item) },
+    async remove(key) { delete storageData[key] },
   }
   const firstLoad = makeContext({ pathname: '/app/c_reload', documentObj: fakeDoc([fakeContainer('Pick one', 'Draft A')]) })
   firstLoad.chrome.storage.local = storageLocal
@@ -346,6 +347,11 @@ async function testGemini() {
   const afterReload = await reload.NX.adapter.fetchTree()
   eq('chrome.storage cache restores branches after reload', afterReload.nodes.length, 3)
   eq('restored branches remain two renderer pairs', reload.NX.buildPairs(afterReload.nodes).length, 2)
+  check('diagnostics contain counts but no conversation text',
+    storageData['nx-gemini-diagnostics'].mergedNodeCount === 3 &&
+    !JSON.stringify(storageData['nx-gemini-diagnostics']).includes('Draft B'))
+  check('clear cached paths succeeds', await reload.NX.adapter.clearCachedTree('c_reload'))
+  check('clear cached paths removes only the conversation cache', !storageData['nx-gemini-tree:c_reload'])
 }
 
 // ───────────────────────────── Claude write driver ─────────────────────────
@@ -397,6 +403,7 @@ function testManifest() {
   check('name is model-neutral (not "for Claude")', !/for Claude\b/i.test(manifest.name) || /ChatGPT/i.test(manifest.name), manifest.name)
   check('name mentions all three hosts', /Claude/.test(manifest.name) && /ChatGPT/.test(manifest.name) && /Gemini/.test(manifest.name), manifest.name)
   check('version bumped past 0.2.x', manifest.version >= '0.3.0', manifest.version)
+  check('summary does not imply Gemini has a hidden branch tree', !/hidden branch tree.*Gemini/i.test(manifest.description), manifest.description)
   for (const host of ['https://claude.ai/*', 'https://chatgpt.com/*', 'https://chat.openai.com/*', 'https://gemini.google.com/*']) {
     check('host_permission ' + host, manifest.host_permissions.includes(host))
   }
