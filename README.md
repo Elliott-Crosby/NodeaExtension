@@ -142,7 +142,8 @@ recon checklist in `STORE-SUBMISSION.md` §7.
 
 - **ChatGPT / Gemini branch-writing.** Both ship read-only (visualize + Open in Nodea).
   In-place branching needs a `chatgpt-write.js` / `gemini-write.js` driver like Claude's.
-- **Gemini branches.** The DOM adapter captures the visible thread as a linear chain;
-  prompt-edit versions and "Show drafts" alternatives aren't surfaced as siblings yet.
+- **Unseen Gemini branches.** Gemini exposes only the path/draft currently rendered in
+  the DOM. The adapter preserves and merges every path the user views, including across
+  reloads, but it cannot discover alternatives the user has never opened in Gemini.
 - **Grok / Copilot / others** — each is a new adapter under `src/adapters/`; Claude,
   ChatGPT, and Gemini prove the API-tree and DOM patterns.
